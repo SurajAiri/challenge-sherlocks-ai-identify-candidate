@@ -76,6 +76,8 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
 
     # webcam pairing state: participant_id -> currently open (bool)
     webcam_open: dict[str, bool] = {}
+    # screenshare pairing state: participant_id -> currently open (bool)
+    screenshare_open: dict[str, bool] = {}
 
     for i, ev in enumerate(timeline):
         ev = ev or {}
@@ -132,6 +134,50 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
                 errors.append(f"{loc}: webcam_off for '{pid}' but webcam was not on")
             webcam_open[pid] = False
 
+        elif ev_type == "participant_update":
+            # Represents an in-session identity change (e.g. display name
+            # edited, or a corrected role_hint) for a participant who has
+            # already joined - NOT a new participant_join. At least one
+            # updatable field must be given, and if display_name is given
+            # it must be non-empty (same rule as participants.*.display_name).
+            has_display_name = "display_name" in data
+            has_role_hint = "role_hint" in data
+            if not (has_display_name or has_role_hint):
+                errors.append(
+                    f"{loc}: participant_update requires at least one of "
+                    f"data.display_name or data.role_hint"
+                )
+            if has_display_name and not data.get("display_name"):
+                errors.append(f"{loc}: participant_update data.display_name, if given, "
+                               f"must be non-empty")
+
+        elif ev_type == "screenshare_start":
+            if screenshare_open.get(pid):
+                errors.append(
+                    f"{loc}: screenshare_start for '{pid}' but a screenshare "
+                    f"is already open (missing screenshare_end before this)"
+                )
+            # Media is optional for screenshare (unlike webcam): a bare
+            # start/end pair with no data.path is a valid "shared their
+            # screen, content not modeled" marker. If a path IS given, it
+            # is validated and loop-fit exactly like webcam media.
+            path = data.get("path")
+            if path:
+                resolved = resolve_media_path(path, scenario_dir)
+                if not os.path.isfile(resolved):
+                    errors.append(
+                        f"{loc}: data.path does not resolve to a file: "
+                        f"'{path}' -> '{resolved}'"
+                    )
+            screenshare_open[pid] = True
+
+        elif ev_type == "screenshare_end":
+            if not screenshare_open.get(pid):
+                errors.append(
+                    f"{loc}: screenshare_end for '{pid}' but no screenshare was open"
+                )
+            screenshare_open[pid] = False
+
         elif ev_type == "audio_stream_on":
             path = data.get("path")
             text = data.get("text")
@@ -155,6 +201,12 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
         if still_open:
             errors.append(
                 f"timeline: webcam for '{pid}' was turned on but never turned off"
+            )
+
+    for pid, still_open in screenshare_open.items():
+        if still_open:
+            errors.append(
+                f"timeline: screenshare for '{pid}' was started but never ended"
             )
 
     # --- ground truth sanity ---

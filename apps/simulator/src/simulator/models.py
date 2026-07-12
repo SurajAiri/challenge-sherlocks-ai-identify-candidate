@@ -15,6 +15,7 @@ from typing import Any, Optional
 class EventType(str, Enum):
     PARTICIPANT_JOIN = "participant_join"
     PARTICIPANT_LEAVE = "participant_leave"
+    PARTICIPANT_UPDATE = "participant_update"
     WEBCAM_ON = "webcam_on"
     WEBCAM_OFF = "webcam_off"
     SCREENSHARE_START = "screenshare_start"
@@ -32,9 +33,10 @@ class EventType(str, Enum):
 # silence is authorable but never emitted downstream - it only advances
 # the compiler's clock.
 AUTHORABLE_EVENT_TYPES = {
-    "participant_join", "participant_leave", "webcam_on", "webcam_off",
-    "screenshare_start", "screenshare_end", "speaking_start", "speaking_end",
-    "transcript_segment", "audio_stream_on", "silence",
+    "participant_join", "participant_leave", "participant_update",
+    "webcam_on", "webcam_off", "screenshare_start", "screenshare_end",
+    "speaking_start", "speaking_end", "transcript_segment",
+    "audio_stream_on", "silence",
 }
 
 

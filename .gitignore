@@ -47,3 +47,6 @@ logs/
 *.log
 
 playground/
+*.zip
+scenarios/
+.cache/

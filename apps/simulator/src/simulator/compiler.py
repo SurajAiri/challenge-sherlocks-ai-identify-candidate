@@ -31,6 +31,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from typing import Optional
+
 import yaml
 
 from simulator.media_gen import ffprobe_duration, synthesize_tts, synthesize_webcam_clip
@@ -131,6 +133,9 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
     pending_webcam: dict[
         str, tuple[float, str]
     ] = {}  # pid -> (t_on, resolved_src_path)
+    pending_screenshare: dict[
+        str, tuple[float, Optional[str]]
+    ] = {}  # pid -> (t_on, resolved_src_path or None if marker-only)
 
     for ev in raw["timeline"]:
         ev = ev or {}
@@ -164,6 +169,60 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
             output.append(
                 Event(
                     t=current_t, type=EventType.WEBCAM_OFF, participant_id=pid, data={}
+                )
+            )
+            continue
+
+        if ev_type == "screenshare_start":
+            path = data.get("path")
+            resolved_src = resolve_media_path(path, scenario_dir) if path else None
+            pending_screenshare[pid] = (current_t, resolved_src)
+            continue
+
+        if ev_type == "screenshare_end":
+            t_on, src_path = pending_screenshare.pop(pid)
+            if src_path is None:
+                # marker-only screenshare (no recorded content) - pass both
+                # ends through unchanged, no media synthesis.
+                output.append(
+                    Event(
+                        t=t_on,
+                        type=EventType.SCREENSHARE_START,
+                        participant_id=pid,
+                        data={},
+                    )
+                )
+                output.append(
+                    Event(
+                        t=current_t,
+                        type=EventType.SCREENSHARE_END,
+                        participant_id=pid,
+                        data={},
+                    )
+                )
+                continue
+            duration = current_t - t_on
+            # Same loop-if-shorter/trim-if-longer treatment as webcam - the
+            # underlying synthesis mechanism doesn't care whether the source
+            # is "a webcam clip" or "a screen recording", only that it needs
+            # to exactly fill a known on..off window.
+            clip_path = synthesize_webcam_clip(
+                src_path, max(duration, 0.1), media_cache_dir
+            )
+            output.append(
+                Event(
+                    t=t_on,
+                    type=EventType.SCREENSHARE_START,
+                    participant_id=pid,
+                    data={"path": clip_path},
+                )
+            )
+            output.append(
+                Event(
+                    t=current_t,
+                    type=EventType.SCREENSHARE_END,
+                    participant_id=pid,
+                    data={},
                 )
             )
             continue
@@ -209,6 +268,13 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
         # validation should have already caught this, but guard anyway
         unclosed = ", ".join(pending_webcam.keys())
         raise ValidationError([f"webcam left on with no webcam_off for: {unclosed}"])
+
+    if pending_screenshare:
+        # validation should have already caught this, but guard anyway
+        unclosed = ", ".join(pending_screenshare.keys())
+        raise ValidationError(
+            [f"screenshare left open with no screenshare_end for: {unclosed}"]
+        )
 
     output.sort(key=lambda e: e.t)
 
