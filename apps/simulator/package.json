@@ -1,0 +1,10 @@
+{
+  "name": "simulator",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000 ",
+    "build": "echo 'No build step required'",
+    "start": "uv run uvicorn main:app --host 0.0.0.0 --port 8000"
+  }
+}
