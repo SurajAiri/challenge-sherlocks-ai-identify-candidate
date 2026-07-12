@@ -1,41 +1,46 @@
 """
-Compile: validated raw dict -> CompiledScenario ready for the emitter.
+Compile: validated raw dict -> CompiledScenario, cached as a .compiled
+artifact under scenario_dir/.cache/ so repeat runs don't redo TTS
+generation or ffmpeg synthesis. Invalidated by a content hash of
+index.yml - edit the source, next compile detects the mismatch and
+redoes the work.
 
-Also handles the "intelligent media" requirement: if a participant only
-has a video_path and no audio_path, extract audio from the video via
-ffmpeg once at compile time (cached next to the source file), so the
-emitter can still treat audio as its own independent stream.
+Timeline resolution is a single forward pass over the authored event
+list, in list order:
+  - silence: advances the clock, emits nothing.
+  - webcam_on / webcam_off: NOT clock-advancing. Stamped at whatever
+    `current_t` is when they're encountered in list order. Once the
+    matching webcam_off is seen, the on..off duration is known, and
+    the source image/video is synthesized (looped or trimmed) to fill
+    exactly that window.
+  - audio_stream_on: clock-advancing. Duration comes from the real
+    measured/generated clip (TTS from `text`, or ffprobe of an explicit
+    `path`) - never an author guess, so there's nothing to reconcile
+    after the fact. `audio_stream_off` is auto-inserted right after.
+  - everything else (join/leave/screenshare/speaking/transcript): not
+    clock-advancing, stamped at `current_t`.
+
+Because `Event.t` is filled in when each event is resolved (not
+necessarily in final chronological order - webcam_on's final record is
+only completed once webcam_off is reached), the full list is sorted by
+t once at the end.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
-import subprocess
 import yaml
 
+from media_gen import ffprobe_duration, synthesize_tts, synthesize_webcam_clip
 from models import (
     CompiledScenario, Event, EventType, Participant,
     ScenarioMetadata, SessionContext,
 )
 from validator import ValidationError, resolve_media_path, validate
 
-
-def _extract_audio(video_path: str) -> str:
-    """Extract audio track from video_path into a sibling .wav, cached."""
-    base, _ = os.path.splitext(video_path)
-    out_path = f"{base}.extracted.wav"
-    if os.path.isfile(out_path):
-        return out_path  # cached from a previous run
-    subprocess.run(
-        [
-            "ffmpeg", "-y", "-i", video_path,
-            "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
-            out_path,
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    return out_path
+CACHE_DIRNAME = ".cache"
+COMPILED_FILENAME = "compiled.json"
 
 
 def load_yaml(index_path: str) -> dict:
@@ -43,18 +48,39 @@ def load_yaml(index_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def compile_scenario(scenario_dir: str, index_filename: str = "index.yml") -> CompiledScenario:
-    index_path = os.path.join(scenario_dir, index_filename)
-    if not os.path.isfile(index_path):
-        raise FileNotFoundError(f"no {index_filename} found in {scenario_dir}")
+def _source_hash(index_path: str) -> str:
+    with open(index_path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
 
-    raw = load_yaml(index_path)
 
-    errors = validate(raw, scenario_dir)
-    if errors:
-        raise ValidationError(errors)
+def _to_jsonable(scenario: CompiledScenario, source_hash: str) -> dict:
+    return {
+        "source_hash": source_hash,
+        "metadata": vars(scenario.metadata),
+        "context": vars(scenario.context),
+        "participants": {pid: vars(p) for pid, p in scenario.participants.items()},
+        "timeline": [
+            {"t": e.t, "type": e.type.value, "participant_id": e.participant_id, "data": e.data}
+            for e in scenario.timeline
+        ],
+        "scenario_dir": scenario.scenario_dir,
+    }
 
-    # --- metadata ---
+
+def _from_jsonable(d: dict) -> CompiledScenario:
+    return CompiledScenario(
+        metadata=ScenarioMetadata(**d["metadata"]),
+        context=SessionContext(**d["context"]),
+        participants={pid: Participant(**p) for pid, p in d["participants"].items()},
+        timeline=[
+            Event(t=e["t"], type=EventType(e["type"]), participant_id=e["participant_id"], data=e["data"])
+            for e in d["timeline"]
+        ],
+        scenario_dir=d["scenario_dir"],
+    )
+
+
+def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
     md = raw["metadata"]
     metadata = ScenarioMetadata(
         name=md["name"],
@@ -62,9 +88,9 @@ def compile_scenario(scenario_dir: str, index_filename: str = "index.yml") -> Co
         remarks=md.get("remarks"),
         ground_truth_participant_id=md.get("ground_truth_participant_id"),
         speed_multiplier=float(md.get("speed_multiplier", 1.0)),
+        generate_audio=bool(md.get("generate_audio", True)),
     )
 
-    # --- context ---
     ctx = raw["context"]
     context = SessionContext(
         calendar_invite=ctx.get("calendar_invite", {}),
@@ -74,48 +100,103 @@ def compile_scenario(scenario_dir: str, index_filename: str = "index.yml") -> Co
         candidate_email=ctx["candidate_email"],
     )
 
-    # --- participants (+ intelligent audio extraction) ---
-    participants: dict[str, Participant] = {}
-    for pid, pdata in raw["participants"].items():
-        pdata = pdata or {}
-        audio_path = pdata.get("audio_path")
-        video_path = pdata.get("video_path")
+    participants = {
+        pid: Participant(participant_id=pid, display_name=pdata["display_name"],
+                          role_hint=(pdata or {}).get("role_hint"))
+        for pid, pdata in raw["participants"].items()
+    }
 
-        resolved_video = resolve_media_path(video_path, scenario_dir) if video_path else None
-        resolved_audio = resolve_media_path(audio_path, scenario_dir) if audio_path else None
+    media_cache_dir = os.path.join(scenario_dir, CACHE_DIRNAME, "media")
 
-        if resolved_video and not resolved_audio:
-            resolved_audio = _extract_audio(resolved_video)
+    current_t = 0.0
+    output: list[Event] = []
+    pending_webcam: dict[str, tuple[float, str]] = {}  # pid -> (t_on, resolved_src_path)
 
-        participants[pid] = Participant(
-            participant_id=pid,
-            display_name=pdata["display_name"],
-            role_hint=pdata.get("role_hint"),
-            audio_path=resolved_audio,
-            video_path=resolved_video,
-        )
-
-    # --- timeline (sorted by t; authoring order in yml doesn't matter) ---
-    timeline: list[Event] = []
     for ev in raw["timeline"]:
+        ev = ev or {}
+        ev_type = ev["type"]
+        pid = ev.get("participant_id")
         data = dict(ev.get("data") or {})
-        # normalize any media path in event data too (e.g. media_stream_start)
-        if "path" in data:
-            data["path"] = resolve_media_path(data["path"], scenario_dir)
-        timeline.append(
-            Event(
-                t=float(ev["t"]),
-                type=EventType(ev["type"]),
-                participant_id=ev.get("participant_id"),
-                data=data,
-            )
-        )
-    timeline.sort(key=lambda e: e.t)
+
+        if ev_type == "silence":
+            current_t += float(data["duration"])
+            continue
+
+        if ev_type == "webcam_on":
+            resolved_src = resolve_media_path(data["path"], scenario_dir)
+            pending_webcam[pid] = (current_t, resolved_src)
+            continue
+
+        if ev_type == "webcam_off":
+            t_on, src_path = pending_webcam.pop(pid)
+            duration = current_t - t_on
+            clip_path = synthesize_webcam_clip(src_path, max(duration, 0.1), media_cache_dir)
+            output.append(Event(t=t_on, type=EventType.WEBCAM_ON, participant_id=pid,
+                                 data={"path": clip_path}))
+            output.append(Event(t=current_t, type=EventType.WEBCAM_OFF, participant_id=pid,
+                                 data={}))
+            continue
+
+        if ev_type == "audio_stream_on":
+            path = data.get("path")
+            text = data.get("text")
+            if path:
+                final_path = resolve_media_path(path, scenario_dir)
+                duration = ffprobe_duration(final_path)
+            else:
+                final_path = synthesize_tts(text, pid, media_cache_dir)
+                duration = ffprobe_duration(final_path)
+
+            on_data = {"path": final_path}
+            if text:
+                on_data["text"] = text
+            output.append(Event(t=current_t, type=EventType.AUDIO_STREAM_ON,
+                                 participant_id=pid, data=on_data))
+            current_t += duration
+            output.append(Event(t=current_t, type=EventType.AUDIO_STREAM_OFF,
+                                 participant_id=pid, data={}))
+            continue
+
+        # all other instantaneous events: don't advance the clock
+        output.append(Event(t=current_t, type=EventType(ev_type), participant_id=pid, data=data))
+
+    if pending_webcam:
+        # validation should have already caught this, but guard anyway
+        unclosed = ", ".join(pending_webcam.keys())
+        raise ValidationError([f"webcam left on with no webcam_off for: {unclosed}"])
+
+    output.sort(key=lambda e: e.t)
 
     return CompiledScenario(
-        metadata=metadata,
-        context=context,
-        participants=participants,
-        timeline=timeline,
-        scenario_dir=scenario_dir,
+        metadata=metadata, context=context, participants=participants,
+        timeline=output, scenario_dir=scenario_dir,
     )
+
+
+def compile_scenario(scenario_dir: str, index_filename: str = "index.yml") -> CompiledScenario:
+    index_path = os.path.join(scenario_dir, index_filename)
+    if not os.path.isfile(index_path):
+        raise FileNotFoundError(f"no {index_filename} found in {scenario_dir}")
+
+    source_hash = _source_hash(index_path)
+    cache_path = os.path.join(scenario_dir, CACHE_DIRNAME, COMPILED_FILENAME)
+
+    if os.path.isfile(cache_path):
+        with open(cache_path, "r") as f:
+            cached = json.load(f)
+        if cached.get("source_hash") == source_hash:
+            return _from_jsonable(cached)
+        # else: stale, fall through and recompile
+
+    raw = load_yaml(index_path)
+    errors = validate(raw, scenario_dir)
+    if errors:
+        raise ValidationError(errors)
+
+    scenario = _compile_fresh(raw, scenario_dir)
+
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    with open(cache_path, "w") as f:
+        json.dump(_to_jsonable(scenario, source_hash), f, indent=2)
+
+    return scenario

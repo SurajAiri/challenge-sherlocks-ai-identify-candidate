@@ -1,9 +1,9 @@
 """
 Core data models for the Scenario Simulator.
 
-These event shapes are deliberately meant to mirror what a real
-Meet/Zoom/Teams SDK adapter would emit. The Engine should not be able
-to tell whether events came from this simulator or a real meeting.
+Event shapes mirror what a real Meet/Zoom/Teams SDK adapter would emit.
+The Engine should not be able to tell whether events came from this
+simulator or a real meeting.
 """
 from __future__ import annotations
 
@@ -22,13 +22,26 @@ class EventType(str, Enum):
     SPEAKING_START = "speaking_start"
     SPEAKING_END = "speaking_end"
     TRANSCRIPT_SEGMENT = "transcript_segment"
-    MEDIA_STREAM_START = "media_stream_start"
-    MEDIA_STREAM_END = "media_stream_end"
+    AUDIO_STREAM_ON = "audio_stream_on"
+    AUDIO_STREAM_OFF = "audio_stream_off"
+
+
+# Event types an author is allowed to write in index.yml.
+# audio_stream_off is deliberately excluded: it is auto-derived by the
+# compiler from measured/generated audio duration, never hand-authored.
+# silence is authorable but never emitted downstream - it only advances
+# the compiler's clock.
+AUTHORABLE_EVENT_TYPES = {
+    "participant_join", "participant_leave", "webcam_on", "webcam_off",
+    "screenshare_start", "screenshare_end", "speaking_start", "speaking_end",
+    "transcript_segment", "audio_stream_on", "silence",
+}
 
 
 @dataclass
 class Event:
-    """A single emitted event. `t` is seconds from session start."""
+    """A single emitted event. `t` is seconds from session start,
+    always resolved by the compiler - never authored directly."""
     t: float
     type: EventType
     participant_id: Optional[str]
@@ -37,7 +50,6 @@ class Event:
 
 @dataclass
 class SessionContext:
-    """Emitted once, at session start. Not part of the timeline."""
     calendar_invite: dict[str, Any]
     interview_schedule: dict[str, Any]
     interviewer_names: list[str]
@@ -47,11 +59,12 @@ class SessionContext:
 
 @dataclass
 class Participant:
+    """Pure identity. Media lives on events (webcam_on/audio_stream_on),
+    not here - a participant's camera/mic can start and stop multiple
+    times over a session, so media doesn't belong at this scope."""
     participant_id: str
     display_name: str
     role_hint: Optional[str] = None  # "candidate" | "interviewer" | "observer" | None
-    audio_path: Optional[str] = None
-    video_path: Optional[str] = None
 
 
 @dataclass
@@ -60,7 +73,9 @@ class ScenarioMetadata:
     slug: str
     remarks: Optional[str] = None
     ground_truth_participant_id: Optional[str] = None
-    speed_multiplier: float = 1.0  # 1.0 = real time, 10.0 = 10x faster playback
+    speed_multiplier: float = 1.0
+    generate_audio: bool = True  # TTS-generate audio for audio_stream_on
+                                  # events that only specify `text`, no path
 
 
 @dataclass
@@ -68,5 +83,5 @@ class CompiledScenario:
     metadata: ScenarioMetadata
     context: SessionContext
     participants: dict[str, Participant]
-    timeline: list[Event]  # sorted by t
+    timeline: list[Event]  # fully resolved, absolute t, sorted
     scenario_dir: str

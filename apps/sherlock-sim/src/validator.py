@@ -1,19 +1,16 @@
 """
 Validation: is index.yml well-formed enough to compile?
 
-Deliberately "common sense" level checks only, per the actual requirement:
-- required sections/fields present
-- participant_id references in timeline resolve to declared participants
-- media paths resolve to real files (relative-to-scenario-dir OR absolute)
-- optional fields may be null, that's fine
-No schema-framework, no strict typing library. Plain assertions with
-readable error messages, collected (not fail-fast) so you see every
-problem in one pass instead of fixing one error at a time.
+Common-sense level checks only: required fields present, references
+resolve, media paths that ARE given resolve to real files. Optional
+fields may be null. No schema-framework.
 """
 from __future__ import annotations
 
 import os
 from typing import Any
+
+from models import AUTHORABLE_EVENT_TYPES
 
 
 class ValidationError(Exception):
@@ -25,11 +22,6 @@ class ValidationError(Exception):
 REQUIRED_TOP_LEVEL = ["metadata", "context", "participants", "timeline"]
 REQUIRED_METADATA = ["name", "slug"]
 REQUIRED_CONTEXT = ["candidate_name", "candidate_email"]
-VALID_EVENT_TYPES = {
-    "participant_join", "participant_leave", "webcam_on", "webcam_off",
-    "screenshare_start", "screenshare_end", "speaking_start", "speaking_end",
-    "transcript_segment", "media_stream_start", "media_stream_end",
-}
 
 
 def resolve_media_path(path: str, scenario_dir: str) -> str:
@@ -48,13 +40,16 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
         if key not in raw:
             errors.append(f"missing required top-level section: '{key}'")
     if errors:
-        return errors  # can't check anything else without these
+        return errors
 
     # --- metadata ---
     metadata = raw["metadata"] or {}
     for key in REQUIRED_METADATA:
         if not metadata.get(key):
             errors.append(f"metadata.{key} is required")
+    generate_audio = metadata.get("generate_audio", True)
+    if not isinstance(generate_audio, bool):
+        errors.append("metadata.generate_audio must be true or false")
 
     # --- context ---
     context = raw["context"] or {}
@@ -72,56 +67,96 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
         pdata = pdata or {}
         if not pdata.get("display_name"):
             errors.append(f"participants.{pid}.display_name is required")
-        for media_key in ("audio_path", "video_path"):
-            path = pdata.get(media_key)
-            if path:
-                resolved = resolve_media_path(path, scenario_dir)
-                if not os.path.isfile(resolved):
-                    errors.append(
-                        f"participants.{pid}.{media_key} does not resolve to a "
-                        f"file: '{path}' -> '{resolved}'"
-                    )
 
     # --- timeline ---
     timeline = raw["timeline"] or []
     if not timeline:
         errors.append("timeline: must contain at least one event")
 
+    # webcam pairing state: participant_id -> currently open (bool)
+    webcam_open: dict[str, bool] = {}
+
     for i, ev in enumerate(timeline):
         ev = ev or {}
         loc = f"timeline[{i}]"
-        if "t" not in ev:
-            errors.append(f"{loc}.t is required")
-        elif not isinstance(ev["t"], (int, float)):
-            errors.append(f"{loc}.t must be numeric (seconds offset)")
 
         ev_type = ev.get("type")
         if not ev_type:
             errors.append(f"{loc}.type is required")
-        elif ev_type not in VALID_EVENT_TYPES:
-            errors.append(f"{loc}.type '{ev_type}' is not a recognized event type")
+            continue
+        if ev_type not in AUTHORABLE_EVENT_TYPES:
+            if ev_type == "audio_stream_off":
+                errors.append(
+                    f"{loc}: 'audio_stream_off' must not be hand-authored - "
+                    f"the compiler derives it automatically from audio duration"
+                )
+            else:
+                errors.append(f"{loc}.type '{ev_type}' is not a recognized event type")
+            continue
 
         pid = ev.get("participant_id")
+        if ev_type != "silence" and pid is None:
+            errors.append(f"{loc}: '{ev_type}' requires participant_id")
         if pid is not None and pid not in known_ids:
-            errors.append(
-                f"{loc}.participant_id '{pid}' is not declared in participants"
-            )
+            errors.append(f"{loc}.participant_id '{pid}' is not declared in participants")
 
-        # media_stream_start must carry a resolvable media path in data
-        if ev_type == "media_stream_start":
-            data = ev.get("data") or {}
-            media_path = data.get("path")
-            if not media_path:
-                errors.append(f"{loc}: media_stream_start requires data.path")
+        data = ev.get("data") or {}
+
+        if ev_type == "silence":
+            if not isinstance(data.get("duration"), (int, float)):
+                errors.append(f"{loc}: silence requires numeric data.duration")
+
+        elif ev_type == "webcam_on":
+            if webcam_open.get(pid):
+                errors.append(
+                    f"{loc}: webcam_on for '{pid}' but webcam is already on "
+                    f"(missing webcam_off before this)"
+                )
+            path = data.get("path")
+            if not path:
+                errors.append(f"{loc}: webcam_on requires data.path (image or video)")
             else:
-                resolved = resolve_media_path(media_path, scenario_dir)
+                resolved = resolve_media_path(path, scenario_dir)
                 if not os.path.isfile(resolved):
                     errors.append(
                         f"{loc}: data.path does not resolve to a file: "
-                        f"'{media_path}' -> '{resolved}'"
+                        f"'{path}' -> '{resolved}'"
                     )
+            webcam_open[pid] = True
 
-    # --- ground truth sanity (optional but if present, must be valid) ---
+        elif ev_type == "webcam_off":
+            if not webcam_open.get(pid):
+                errors.append(f"{loc}: webcam_off for '{pid}' but webcam was not on")
+            webcam_open[pid] = False
+
+        elif ev_type == "audio_stream_on":
+            path = data.get("path")
+            text = data.get("text")
+            if path:
+                resolved = resolve_media_path(path, scenario_dir)
+                if not os.path.isfile(resolved):
+                    errors.append(
+                        f"{loc}: data.path does not resolve to a file: "
+                        f"'{path}' -> '{resolved}'"
+                    )
+            elif text:
+                if not generate_audio:
+                    errors.append(
+                        f"{loc}: audio_stream_on has only 'text' (no data.path) "
+                        f"but metadata.generate_audio is false"
+                    )
+            else:
+                errors.append(
+                    f"{loc}: audio_stream_on requires data.path or data.text"
+                )
+
+    for pid, still_open in webcam_open.items():
+        if still_open:
+            errors.append(
+                f"timeline: webcam for '{pid}' was turned on but never turned off"
+            )
+
+    # --- ground truth sanity ---
     gt = metadata.get("ground_truth_participant_id")
     if gt and gt not in known_ids:
         errors.append(

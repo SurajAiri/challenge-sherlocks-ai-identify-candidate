@@ -3,7 +3,7 @@ Emitter: plays back a CompiledScenario as an async event stream.
 
 This owns exactly one clock: the event-scheduling clock (wall-time,
 scaled by speed_multiplier). It does NOT decode audio/video frames —
-media_stream_start just hands the consumer a file path + seek offset.
+webcam_on/audio_stream_on just hand the consumer a file path.
 Whatever consumes it (a real Engine identifier) decides its own
 sampling rate (e.g. 2fps for video, native rate for audio). This is
 deliberate: the simulator's clock and a media codec's clock are
