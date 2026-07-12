@@ -41,6 +41,8 @@ from simulator.models import (
     Event,
     EventType,
     Participant,
+    ScenarioControls,
+    ScenarioEvaluation,
     ScenarioMetadata,
     SessionContext,
 )
@@ -64,6 +66,8 @@ def _to_jsonable(scenario: CompiledScenario, source_hash: str) -> dict:
     return {
         "source_hash": source_hash,
         "metadata": vars(scenario.metadata),
+        "controls": vars(scenario.controls),
+        "evaluation": vars(scenario.evaluation),
         "context": vars(scenario.context),
         "participants": {pid: vars(p) for pid, p in scenario.participants.items()},
         "timeline": [
@@ -82,6 +86,8 @@ def _to_jsonable(scenario: CompiledScenario, source_hash: str) -> dict:
 def _from_jsonable(d: dict) -> CompiledScenario:
     return CompiledScenario(
         metadata=ScenarioMetadata(**d["metadata"]),
+        controls=ScenarioControls(**d["controls"]),
+        evaluation=ScenarioEvaluation(**d["evaluation"]),
         context=SessionContext(**d["context"]),
         participants={pid: Participant(**p) for pid, p in d["participants"].items()},
         timeline=[
@@ -102,10 +108,21 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
     metadata = ScenarioMetadata(
         name=md["name"],
         slug=md["slug"],
-        remarks=md.get("remarks"),
-        ground_truth_participant_id=md.get("ground_truth_participant_id"),
-        speed_multiplier=float(md.get("speed_multiplier", 1.0)),
-        generate_audio=bool(md.get("generate_audio", True)),
+        description=md.get("description"),
+    )
+
+    ctl = raw.get("controls") or {}
+    controls = ScenarioControls(
+        speed_multiplier=float(ctl.get("speed_multiplier", 1.0)),
+        generate_audio=bool(ctl.get("generate_audio", True)),
+    )
+
+    ev = raw.get("evaluation") or {}
+    evaluation = ScenarioEvaluation(
+        ground_truth_participant_id=ev.get("ground_truth_participant_id"),
+        difficulty=ev.get("difficulty"),
+        challenging_points=list(ev.get("challenging_points") or []),
+        expected_evidence=dict(ev.get("expected_evidence") or {}),
     )
 
     ctx = raw["context"]
@@ -280,6 +297,8 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
 
     return CompiledScenario(
         metadata=metadata,
+        controls=controls,
+        evaluation=evaluation,
         context=context,
         participants=participants,
         timeline=output,

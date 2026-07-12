@@ -28,7 +28,7 @@ async def emit(scenario: CompiledScenario) -> AsyncIterator[tuple[str, object]]:
     yield ("context", scenario.context)
 
     start_wall = time.monotonic()
-    speed = scenario.metadata.speed_multiplier or 1.0
+    speed = scenario.controls.speed_multiplier or 1.0
 
     for event in scenario.timeline:
         target_wall = start_wall + (event.t / speed)

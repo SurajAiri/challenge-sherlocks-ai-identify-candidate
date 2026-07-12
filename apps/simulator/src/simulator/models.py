@@ -71,19 +71,47 @@ class Participant:
 
 @dataclass
 class ScenarioMetadata:
+    """Pure identity + human-readable framing. Nothing here is grading
+    truth and nothing here is a runtime knob - see ScenarioEvaluation
+    and ScenarioControls for those."""
     name: str
     slug: str
-    remarks: Optional[str] = None
-    ground_truth_participant_id: Optional[str] = None
+    description: Optional[str] = None  # what this scenario is, for a human
+                                        # reader (dashboard-facing). Replaces
+                                        # the old `remarks` field 1:1.
+
+
+@dataclass
+class ScenarioControls:
+    """Runtime/playback knobs. Never grading truth, never scenario identity -
+    changing these doesn't change what the scenario is testing, only how
+    fast/faithfully it plays back."""
     speed_multiplier: float = 1.0
     generate_audio: bool = True  # TTS-generate audio for audio_stream_on
                                   # events that only specify `text`, no path
 
 
 @dataclass
+class ScenarioEvaluation:
+    """Grading/dashboard-only metadata. NEVER sent down emit()'s wire
+    stream - the Engine must never see this. Only exposed via the
+    dedicated evaluation endpoint/CLI, for scoring and for the dashboard
+    to show a human what the scenario is designed to stress."""
+    ground_truth_participant_id: Optional[str] = None
+    difficulty: Optional[int] = None  # 1 (easiest) - 5 (hardest)
+    challenging_points: list[str] = field(default_factory=list)
+    expected_evidence: dict[str, list[str]] = field(default_factory=dict)
+    # expected_evidence keys: "primary", "secondary", "misleading".
+    # Values are free-text strings - it's the dashboard's job to decide
+    # how to render/compare them, not the simulator's.
+
+
+@dataclass
 class CompiledScenario:
     metadata: ScenarioMetadata
+    controls: ScenarioControls
     context: SessionContext
     participants: dict[str, Participant]
     timeline: list[Event]  # fully resolved, absolute t, sorted
     scenario_dir: str
+    evaluation: ScenarioEvaluation = field(default_factory=ScenarioEvaluation)

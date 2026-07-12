@@ -1,16 +1,29 @@
 """
 FastAPI service — the HTTP-native sibling of cli.py.
 
-No argparse, no console/dry-run mode. Two endpoints:
+No argparse, no console/dry-run mode. Three endpoints, all POST with the
+same {"scenario_dir": ...} body shape (no DB/session state here, so the
+scenario has to be named explicitly on every call - a bare slug isn't
+enough on its own):
 
-    POST /validate   {"scenario_dir": "scenarios/demo_clean"}
-    POST /run        {"scenario_dir": "scenarios/demo_clean"}   -> SSE stream
+    POST /validate     -> is this scenario well-formed? (author tooling)
+    POST /run          -> SSE stream of context/event frames (Engine-facing)
+    POST /evaluation   -> grading/dashboard metadata (author/scoring tooling)
 
-Both take the same body shape. /run compiles the scenario up front (so a
-broken scenario 4xx's immediately, before the stream opens - same instinct
-as cli.py's `serve` failing fast before the socket opens) and then streams
-context/event/error frames as Server-Sent Events, one JSON object per frame,
-reusing the exact same `emit()` generator the CLI's `serve` command uses.
+/validate and /evaluation are author/scoring-facing only and must never be
+called by anything sitting in the Engine's live identification path -
+/evaluation in particular returns ground_truth_participant_id, which is
+the one piece of information the whole simulator design goes out of its
+way to keep off the /run wire. /validate deliberately does NOT return
+ground truth (even though it has it, from the compiled scenario) for the
+same reason: a scenario-validity check has no business being a second
+channel that leaks the answer.
+
+/run compiles the scenario up front (so a broken scenario 4xx's
+immediately, before the stream opens - same instinct as cli.py's `serve`
+failing fast before the socket opens) and then streams context/event/error
+frames as Server-Sent Events, one JSON object per frame, reusing the exact
+same `emit()` generator the CLI's `serve` command uses.
 
 Run with:
     uv run uvicorn api:app --host 0.0.0.0 --port 8000
@@ -50,6 +63,11 @@ def _compile_or_4xx(scenario_dir: str):
 
 @app.post("/validate")
 def validate_scenario(req: ScenarioRequest):
+    """Author-facing sanity check only. Deliberately does NOT return
+    ground_truth_participant_id, difficulty, or any other evaluation
+    field - that's what /evaluation is for. Keeping this response
+    minimal means there's only one endpoint anyone could accidentally
+    wire an Engine up to and leak the answer through."""
     scenario = _compile_or_4xx(req.scenario_dir)
     return {
         "valid": True,
@@ -57,7 +75,36 @@ def validate_scenario(req: ScenarioRequest):
         "slug": scenario.metadata.slug,
         "participants": list(scenario.participants.keys()),
         "timeline_events": len(scenario.timeline),
-        "ground_truth_participant_id": scenario.metadata.ground_truth_participant_id,
+    }
+
+
+@app.post("/evaluation")
+def evaluation_scenario(req: ScenarioRequest):
+    """Grading/dashboard metadata for a scenario: identity fields
+    (name, slug, description) alongside everything under `evaluation`
+    in index.yml (ground truth, difficulty, challenging points,
+    expected evidence). This is the one endpoint allowed to return
+    ground_truth_participant_id - callers are responsible for keeping
+    it out of anything that talks to a live Engine.
+
+    Reuses compile_scenario() (same as /validate and /run) rather than
+    a second hand-rolled YAML parser, so there's exactly one place that
+    decides what a scenario's fields mean - at the cost of a full
+    compile (TTS/ffmpeg synthesis included) on a cold cache. In
+    practice this is only slow the very first time any endpoint touches
+    a given scenario; compiled output is cached under
+    scenario_dir/.cache/ and reused by every endpoint after that,
+    including this one.
+    """
+    scenario = _compile_or_4xx(req.scenario_dir)
+    return {
+        "name": scenario.metadata.name,
+        "slug": scenario.metadata.slug,
+        "description": scenario.metadata.description,
+        "ground_truth_participant_id": scenario.evaluation.ground_truth_participant_id,
+        "difficulty": scenario.evaluation.difficulty,
+        "challenging_points": scenario.evaluation.challenging_points,
+        "expected_evidence": scenario.evaluation.expected_evidence,
     }
 
 

@@ -16,7 +16,7 @@ it's gitignored and invalidated automatically by a content hash of
 indistinguishable, on the wire, from a real Meet/Zoom/Teams adapter.
 
 Ground truth for **who the candidate actually is** lives in
-`metadata.ground_truth_participant_id` — it is never sent down the
+`evaluation.ground_truth_participant_id` — it is never sent down the
 event stream itself, only used for offline scoring/evaluation. Every
 other identity signal an Engine would use has to be inferred from the
 event stream + context, same as production.
@@ -24,18 +24,38 @@ event stream + context, same as production.
 ## Hard requirements (validator.py — self-check before running `validate`)
 
 Top-level: `metadata`, `context`, `participants`, `timeline` are all
-**required** keys, checked before anything else runs.
+**required** keys, checked before anything else runs. `controls` and
+`evaluation` are optional top-level sections (both have all-optional
+or defaulted fields).
 
-**`metadata`**
-- `name`, `slug` — required, non-empty.
-- `ground_truth_participant_id` — optional, but if present **must** be
-  a key in `participants`.
+**`metadata`** — pure identity/framing, nothing gradable, no runtime knobs.
+- `name`, `slug`, `description` — required, non-empty. `description` is
+  human-facing (dashboard) prose: state plainly what this scenario is
+  and why it exists. This replaced the old `remarks` field 1:1 — same
+  purpose, same content, just required now instead of optional.
+
+**`controls`** — optional section, runtime/playback knobs only.
 - `speed_multiplier` — optional float, default `1.0`. Scales wall-clock
   playback speed only (e.g. `20.0` for a fast demo run) — never
   changes relative event ordering or durations.
 - `generate_audio` — optional bool, default `true`. If `false`, every
   `audio_stream_on` in the timeline **must** supply `data.path` (an
   audio-only `text` becomes a validation error).
+
+**`evaluation`** — optional section, grading/dashboard-only, **never
+sent down `emit()`'s event stream** — only reachable via the
+`/evaluation` HTTP endpoint or `scenario.evaluation` in code, both
+author/scoring tooling, never anything an Engine talks to.
+- `ground_truth_participant_id` — optional, but if present **must** be
+  a key in `participants`.
+- `difficulty` — optional integer, `1` (easiest) to `5` (hardest).
+- `challenging_points` — optional list of strings: the specific
+  obstacles an identification system has to overcome in this scenario.
+- `expected_evidence` — optional map. Allowed keys exactly `primary`,
+  `secondary`, `misleading` (unrecognized keys are a validation error);
+  each value is a list of free-text strings. The simulator does not
+  interpret these strings — rendering/scoring against an Engine's
+  actual output is entirely the dashboard's responsibility.
 
 **`context`**
 - `candidate_name`, `candidate_email` — the only two **required**
@@ -53,7 +73,7 @@ Top-level: `metadata`, `context`, `participants`, `timeline` are all
   / `"observer"` / `null` are the convention but **nothing validates
   this** — typos pass silently). It is decorative for the simulator:
   no validator/compiler logic reads it. Only
-  `ground_truth_participant_id` is scored truth.
+  `evaluation.ground_truth_participant_id` is scored truth.
 - This dict is the compiler's identity registry, but **it is never
   itself transmitted on the wire.** `emit()` only sends `context` once
   and then timeline events — never a participant roster dump. See
@@ -86,7 +106,7 @@ reads and does **not** advance it: `participant_join`,
 | `screenshare_end` | none | Must have a matching open `screenshare_start` |
 | `speaking_start` / `speaking_end` | none | `participant_id` known only — **no pairing enforcement** (unlike webcam/screenshare). Author carefully. |
 | `transcript_segment` | freeform `data` (e.g. `{text: ...}`) | `participant_id` known only, no content validation |
-| `audio_stream_on` | `data.path` **or** `data.text` (at least one) | If `path` given, resolved + file-existence checked (explicit media always wins over generation). If only `text`, requires `metadata.generate_audio: true`. |
+| `audio_stream_on` | `data.path` **or** `data.text` (at least one) | If `path` given, resolved + file-existence checked (explicit media always wins over generation). If only `text`, requires `controls.generate_audio: true`. |
 | ~~`audio_stream_off`~~ | — | **Never hand-author this.** Validator rejects it outright — the compiler auto-derives and inserts it right after measuring real audio duration. |
 | `silence` | numeric `data.duration` | clock-advancing, never emitted downstream |
 
@@ -147,14 +167,19 @@ uv run src/cli.py serve scenarios/<slug>        # ws://0.0.0.0:8765 — the real
 Wire format on `serve`: newline-free JSON per message,
 `{"kind": "context"|"event"|"error", "payload": {...}}`. Each
 connecting client gets a fresh replay from `t=0`. There is also an
-HTTP/SSE-based `api.py` (`/validate`, `/run`) — a different wire
-protocol from `serve`'s raw websocket; `serve` is what a real Engine
-should connect to.
+HTTP/SSE-based `api.py` (`/validate`, `/run`, `/evaluation`) — a
+different wire protocol from `serve`'s raw websocket; `serve`/`/run`
+are what a real Engine should connect to. `/validate` and
+`/evaluation` are author/scoring tooling only; `/evaluation` is the
+one endpoint that returns `ground_truth_participant_id` and the rest
+of the `evaluation` section — never point an Engine at it.
 
 ## Common validation-error messages (self-correct against these)
 
-- `metadata.name is required` / `metadata.slug is required`
-- `metadata.ground_truth_participant_id '<id>' is not a declared participant`
+- `metadata.name is required` / `metadata.slug is required` / `metadata.description is required`
+- `evaluation.ground_truth_participant_id '<id>' is not a declared participant`
+- `evaluation.difficulty must be an integer 1 (easiest) - 5 (hardest)`
+- `evaluation.expected_evidence has unrecognized key(s) [...] - allowed: ['misleading', 'primary', 'secondary']`
 - `context.candidate_name is required` / `context.candidate_email is required`
 - `participants: at least one participant is required`
 - `participants.<id>.display_name is required`
@@ -172,7 +197,7 @@ should connect to.
 - `timeline[<i>]: participant_update requires at least one of data.display_name or data.role_hint`
 - `timeline[<i>]: data.path does not resolve to a file: '<path>' -> '<resolved>'`
 - `timeline[<i>]: audio_stream_on requires data.path or data.text`
-- `timeline[<i>]: audio_stream_on has only 'text' (no data.path) but metadata.generate_audio is false`
+- `timeline[<i>]: audio_stream_on has only 'text' (no data.path) but controls.generate_audio is false`
 - `timeline: silence requires numeric data.duration`
 
 ## Scenario design checklist (map challenge edge cases → recipes)
@@ -188,12 +213,16 @@ should connect to.
 | Missing external metadata | Omit `calendar_invite`/`interview_schedule`/`interviewer_names` entirely (all optional) |
 | Candidate never enables webcam | Simply author no `webcam_on`/`webcam_off` pair for that participant — not required per-participant |
 | Screen-shared coding round | `screenshare_start` with `data.path` on the candidate for a loop-fit recording, or path-less for a bare marker |
-| No ground truth (edge case) | Omit `metadata.ground_truth_participant_id` and say so explicitly in `remarks` — don't leave it silently ambiguous |
+| No ground truth (edge case) | Omit `evaluation.ground_truth_participant_id` and say so explicitly in `metadata.description` — don't leave it silently ambiguous |
 
-Always set `remarks` to state, in plain language, exactly which
-edge-case behavior the scenario is designed to stress — the field is
-free text and is the only place scenario *intent* is recorded for a
-future reader.
+Always write `metadata.description` (required) to state, in plain
+language, exactly which edge-case behavior the scenario is designed to
+stress. Use `evaluation.challenging_points` to break that same intent
+down into a checklist of specific obstacles, and
+`evaluation.expected_evidence` to record which signals should point
+where — description is prose for a human skimming the scenario;
+challenging_points/expected_evidence are the same intent made
+structured enough for a dashboard or scoring pass to use.
 
 ## Known gaps (don't silently paper over these)
 

@@ -21,8 +21,9 @@ class ValidationError(Exception):
 
 
 REQUIRED_TOP_LEVEL = ["metadata", "context", "participants", "timeline"]
-REQUIRED_METADATA = ["name", "slug"]
+REQUIRED_METADATA = ["name", "slug", "description"]
 REQUIRED_CONTEXT = ["candidate_name", "candidate_email"]
+EXPECTED_EVIDENCE_KEYS = {"primary", "secondary", "misleading"}
 
 
 def resolve_media_path(path: str, scenario_dir: str) -> str:
@@ -48,9 +49,15 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
     for key in REQUIRED_METADATA:
         if not metadata.get(key):
             errors.append(f"metadata.{key} is required")
-    generate_audio = metadata.get("generate_audio", True)
+
+    # --- controls (optional section - both fields have defaults) ---
+    controls = raw.get("controls") or {}
+    generate_audio = controls.get("generate_audio", True)
     if not isinstance(generate_audio, bool):
-        errors.append("metadata.generate_audio must be true or false")
+        errors.append("controls.generate_audio must be true or false")
+    speed_multiplier = controls.get("speed_multiplier", 1.0)
+    if not isinstance(speed_multiplier, (int, float)):
+        errors.append("controls.speed_multiplier must be a number")
 
     # --- context ---
     context = raw["context"] or {}
@@ -209,11 +216,47 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
                 f"timeline: screenshare for '{pid}' was started but never ended"
             )
 
-    # --- ground truth sanity ---
-    gt = metadata.get("ground_truth_participant_id")
+    # --- evaluation (optional section - grading/dashboard-only, never
+    # sent down the emit() wire stream; see ScenarioEvaluation) ---
+    evaluation = raw.get("evaluation") or {}
+
+    gt = evaluation.get("ground_truth_participant_id")
     if gt and gt not in known_ids:
         errors.append(
-            f"metadata.ground_truth_participant_id '{gt}' is not a declared participant"
+            f"evaluation.ground_truth_participant_id '{gt}' is not a declared participant"
         )
+
+    difficulty = evaluation.get("difficulty")
+    if difficulty is not None:
+        if not isinstance(difficulty, int) or isinstance(difficulty, bool) or not (1 <= difficulty <= 5):
+            errors.append("evaluation.difficulty must be an integer 1 (easiest) - 5 (hardest)")
+
+    challenging_points = evaluation.get("challenging_points")
+    if challenging_points is not None:
+        if not isinstance(challenging_points, list) or not all(
+            isinstance(x, str) for x in challenging_points
+        ):
+            errors.append("evaluation.challenging_points must be a list of strings")
+
+    expected_evidence = evaluation.get("expected_evidence")
+    if expected_evidence is not None:
+        if not isinstance(expected_evidence, dict):
+            errors.append("evaluation.expected_evidence must be a map")
+        else:
+            unknown_keys = set(expected_evidence.keys()) - EXPECTED_EVIDENCE_KEYS
+            if unknown_keys:
+                errors.append(
+                    f"evaluation.expected_evidence has unrecognized key(s) "
+                    f"{sorted(unknown_keys)} - allowed: {sorted(EXPECTED_EVIDENCE_KEYS)}"
+                )
+            for key, values in expected_evidence.items():
+                if key not in EXPECTED_EVIDENCE_KEYS:
+                    continue  # already reported above
+                if not isinstance(values, list) or not all(
+                    isinstance(v, str) for v in values
+                ):
+                    errors.append(
+                        f"evaluation.expected_evidence.{key} must be a list of strings"
+                    )
 
     return errors

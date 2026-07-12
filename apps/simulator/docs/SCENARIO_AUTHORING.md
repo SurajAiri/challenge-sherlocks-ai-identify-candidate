@@ -33,7 +33,7 @@ baseline) or accidentally leaked the answer somewhere it shouldn't be.
 A scenario is a folder:
 
 ```
-scenarios/demo_clean/
+scenarios-ref/demo_clean/ # normal ones goes in scenarios/ [and it's ignored by git] (this is just reference)
   index.yml          # the scenario itself
   media/              # your source images/videos/audio, referenced by relative path
     candidate.mp4
@@ -41,13 +41,17 @@ scenarios/demo_clean/
   .cache/              # generated automatically, gitignored — never touch or commit
 ```
 
-`index.yml` has four sections:
+`index.yml` has six sections:
 
-- **`metadata`** — name, slug, and the graded ground truth
-  (`ground_truth_participant_id`). Also `speed_multiplier` (crank this
-  up, e.g. `20.0`, so demo runs don't take real interview-length time)
-  and `generate_audio` (turn off if you're supplying real audio files
-  instead of letting the simulator TTS the lines).
+- **`metadata`** — `name`, `slug`, and `description` (required,
+  human-readable — state in plain language exactly what this scenario
+  is and, at a glance, why it exists). Pure identity/framing only —
+  nothing gradable and no runtime knobs live here.
+- **`controls`** — runtime/playback knobs, not scenario content:
+  `speed_multiplier` (crank this up, e.g. `20.0`, so demo runs don't
+  take real interview-length time) and `generate_audio` (turn off if
+  you're supplying real audio files instead of letting the simulator
+  TTS the lines). Both optional, both default sensibly.
 - **`context`** — the "external metadata" a real system would already
   have before the meeting even starts: calendar invite, scheduled
   time, interviewer names, and the candidate's name/email as HR
@@ -61,6 +65,18 @@ scenarios/demo_clean/
   no explicit timestamp field — position in the list *is* the order,
   and the simulator's compiler works out real timestamps for you based
   on how long things actually take (audio duration, explicit pauses).
+- **`evaluation`** — grading/dashboard-only metadata, optional as a
+  whole section: `ground_truth_participant_id`, `difficulty` (integer
+  `1`–`5`, `1` easiest), `challenging_points` (list of strings — the
+  specific obstacles an identification system has to get past),
+  `expected_evidence` (a map of `primary`/`secondary`/`misleading` to
+  lists of free-text strings describing what evidence points where —
+  it's the dashboard's job to decide how to render or score these
+  against an Engine's actual output, the simulator just carries them).
+  **This entire section is never sent down `emit()`'s event stream** —
+  it's only reachable via the `/evaluation` HTTP endpoint or the
+  compiled `scenario.evaluation` object in a console/CLI context, both
+  of which are author/scoring tooling, not anything an Engine talks to.
 
 ## What matters when you're designing a scenario
 

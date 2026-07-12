@@ -35,7 +35,9 @@ def cmd_validate(scenario_dir: str) -> None:
     print(f"VALID: '{scenario.metadata.name}' ({scenario.metadata.slug})")
     print(f"  participants: {list(scenario.participants.keys())}")
     print(f"  timeline events: {len(scenario.timeline)}")
-    print(f"  ground truth: {scenario.metadata.ground_truth_participant_id}")
+    # ground truth is author/scoring-only info, printed here for the human
+    # running this CLI - never sent down emit()'s wire stream to an Engine.
+    print(f"  ground truth (author-only): {scenario.evaluation.ground_truth_participant_id}")
 
 
 async def _run_console(scenario_dir: str) -> None:
@@ -43,7 +45,7 @@ async def _run_console(scenario_dir: str) -> None:
     scenario = compile_scenario(scenario_dir)
     print(
         f"--- running '{scenario.metadata.name}' "
-        f"(speed={scenario.metadata.speed_multiplier}x) ---\n"
+        f"(speed={scenario.controls.speed_multiplier}x) ---\n"
     )
     async for kind, payload in emit(scenario):
         if kind == "context":

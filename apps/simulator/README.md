@@ -21,17 +21,27 @@ uv run src/cli.py serve scenarios/demo_clean         # websocket, JSON wire form
 `{"kind": "context"|"event", "payload": {...}}` JSON messages — this is
 what the Engine should actually connect to.
 
+There's also an HTTP/SSE sibling, `api.py` (`uv run uvicorn api:app`), with
+three POST endpoints, all taking `{"scenario_dir": "scenarios/demo_clean"}`:
+`/validate` (author sanity check, no grading fields returned), `/run` (SSE
+stream, same wire contract as `serve`), and `/evaluation` (grading/dashboard
+metadata: ground truth, difficulty, challenging points, expected evidence —
+never call this from anything wired to a live Engine).
+
 ## Pipeline
 `index.yml` → validate (`validator.py`) → compile (`compiler.py`, cached
 under `scenario_dir/.cache/`) → emit (`emitter.py`).
 
 ## Schema (`index.yml`)
 ```yaml
-metadata:      # name, slug, ground_truth_participant_id, speed_multiplier,
-               # generate_audio (bool)
+metadata:      # name, slug, description (pure identity + human framing)
+controls:      # speed_multiplier, generate_audio (bool) - runtime knobs only
 context:       # calendar invite, schedule, interviewer names, candidate name/email
 participants:  # id -> display_name, role_hint (pure identity, no media here)
 timeline:      # list of events, in the order they happen - see below
+evaluation:    # ground_truth_participant_id, difficulty (1-5), challenging_points,
+               # expected_evidence {primary, secondary, misleading} - grading/
+               # dashboard-only, NEVER sent down emit()'s wire stream
 ```
 
 ### Timeline: no `t` field, ever
@@ -55,7 +65,7 @@ stamped at whatever the clock currently reads — it does not advance time.
   with a distinct, deterministic voice per participant. Set
   `audio_stream_on: {path}` instead to use a real audio file — explicit
   media always wins over generation for that event.
-- `metadata.generate_audio: false` disables TTS globally; any
+- `controls.generate_audio: false` disables TTS globally; any
   `audio_stream_on` using only `text` (no `path`) becomes a validation error.
 
 ### Caching

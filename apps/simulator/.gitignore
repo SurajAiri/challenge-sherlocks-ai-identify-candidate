@@ -226,4 +226,4 @@ artifact/
 *.wav
 
 logs/
-scenarios
+scenarios-old
