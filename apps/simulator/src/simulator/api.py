@@ -21,9 +21,14 @@ channel that leaks the answer.
 
 /run compiles the scenario up front (so a broken scenario 4xx's
 immediately, before the stream opens - same instinct as cli.py's `serve`
-failing fast before the socket opens) and then streams context/event/error
-frames as Server-Sent Events, one JSON object per frame, reusing the exact
-same `emit()` generator the CLI's `serve` command uses.
+failing fast before the socket opens) and then streams context/event/
+stream/error frames as Server-Sent Events, one JSON object per frame,
+reusing the exact same `emit()` generator the CLI's `serve` command
+uses. `stream` frames carry base64-encoded raw media bytes for a
+currently-open webcam/audio/screenshare track - `event` frames for
+those tracks (webcam_on/audio_stream_on/screenshare_start) carry only
+lifecycle + codec metadata (width/height/fps, sample_rate/encoding),
+never a file path.
 
 Run with:
     uv run uvicorn api:app --host 0.0.0.0 --port 8000

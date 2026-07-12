@@ -28,6 +28,18 @@ what a real adapter would give it. If a scenario's answer is
 either made a happy-path case (fine, you need a few of these as a
 baseline) or accidentally leaked the answer somewhere it shouldn't be.
 
+The same "exactly what a real adapter would give it" principle applies
+to *how* media is delivered, not just what facts are in the events: a
+real Meet/Zoom/Teams adapter never hands you a file path to open at
+your leisure, it pushes you a live track. So webcam/audio/screenshare
+in `index.yml` are still authored as a path or TTS text (see below) —
+that part hasn't changed — but on the wire, the on-event only carries
+track metadata (resolution/fps, or sample rate/encoding) and the
+actual bytes arrive afterward as a separate, real-time-paced stream of
+chunks. If you're building the Engine side against this simulator,
+don't read `data.path` off a `webcam_on`/`audio_stream_on` event —
+there isn't one; consume the `stream` messages instead.
+
 ## The basic shape
 
 A scenario is a folder:

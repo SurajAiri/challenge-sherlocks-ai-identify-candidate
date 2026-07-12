@@ -51,6 +51,43 @@ class Event:
 
 
 @dataclass
+class StreamChunk:
+    """One slice of raw media for an already-open track (webcam_on,
+    audio_stream_on, or screenshare_start with a `path`). Compiler-
+    internal / cache-internal only - `source_path`/`byte_offset`/
+    `byte_length` point at a local file on the machine running the
+    simulator and are NEVER sent on the wire. `emitter.py` reads the
+    bytes lazily at emit time and converts each one into a `StreamFrame`
+    (below) before it goes out.
+
+    Kept in the same sorted `CompiledScenario.timeline` list as `Event`
+    (interleaved by `t`) so the emitter stays a single dumb sequential
+    walker - no concurrency needed, because chunk timestamps are
+    computed once, up front, at compile time.
+    """
+    t: float
+    participant_id: str
+    modality: str  # "audio" | "video" | "screenshare"
+    seq: int  # 0-based, per participant+modality+window
+    source_path: str
+    byte_offset: int = 0
+    byte_length: Optional[int] = None  # None = read the whole file
+                                        # (used for one-frame-per-file images)
+
+
+@dataclass
+class StreamFrame:
+    """Wire-ready form of a StreamChunk: bytes already read off disk,
+    base64-encoded so it's JSON-safe. This - never StreamChunk - is
+    what actually gets sent as a `"stream"` message."""
+    t: float
+    participant_id: str
+    modality: str
+    seq: int
+    data: str  # base64-encoded chunk bytes
+
+
+@dataclass
 class SessionContext:
     calendar_invite: dict[str, Any]
     interview_schedule: dict[str, Any]
@@ -112,6 +149,12 @@ class CompiledScenario:
     controls: ScenarioControls
     context: SessionContext
     participants: dict[str, Participant]
-    timeline: list[Event]  # fully resolved, absolute t, sorted
+    # fully resolved, absolute t, sorted. Event = discrete state change
+    # (join/leave/webcam_on marker/transcript/...). StreamChunk = one
+    # slice of raw media bytes for a track that's already open. Both
+    # live in one flat, time-sorted list so the emitter is still a
+    # single sequential walker - no concurrency, same as before chunks
+    # existed.
+    timeline: list[Event | StreamChunk]
     scenario_dir: str
     evaluation: ScenarioEvaluation = field(default_factory=ScenarioEvaluation)

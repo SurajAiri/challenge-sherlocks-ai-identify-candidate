@@ -28,9 +28,43 @@ stream, same wire contract as `serve`), and `/evaluation` (grading/dashboard
 metadata: ground truth, difficulty, challenging points, expected evidence —
 never call this from anything wired to a live Engine).
 
+## Wire protocol: `context` / `event` / `stream`
+Both `serve` and `/run` emit three message kinds, in this shape:
+`{"kind": "context"|"event"|"stream", "payload": {...}}`.
+
+- **`context`** (once, first) — calendar invite, schedule, interviewer
+  names, candidate name/email.
+- **`event`** — discrete state changes: join/leave, `webcam_on`/`off`,
+  `speaking_start`/`end`, `transcript_segment`, etc. Sparse, low
+  frequency. `webcam_on`/`audio_stream_on`/`screenshare_start` carry
+  **track metadata only** (`width`/`height`/`fps` for video,
+  `sample_rate`/`encoding`/`channels` for audio) — **never a file
+  path.** A real Meet/Zoom/Teams adapter can't hand you a path into its
+  own filesystem; it hands you a live track. Shipping a path here would
+  mean building Engine identifiers against a data contract ("read this
+  file whenever you like") that doesn't exist in production, so we
+  don't.
+- **`stream`** — the actual media payload for a currently-open track:
+  base64-encoded bytes, tagged `participant_id` + `modality`
+  (`"audio"|"video"|"screenshare"`) + `seq`, paced in real time between
+  the matching `_on`/`_off` events (scaled by `speed_multiplier`, same
+  clock as everything else). Chunk rate is a stated, tunable assumption
+  (`VIDEO_CHUNK_FPS`, `AUDIO_CHUNK_MS` in `compiler.py`), not a claim
+  about a source's "native" rate — our sources (looped stills, TTS
+  wavs) don't have one. A real adapter would chunk at the actual camera
+  fps / RTP cadence instead.
+
+Both event and stream timestamps are computed once, up front, at
+compile time and merged into one flat sorted list — `emitter.py` stays
+a single sequential walker (sleep-to-next-`t`, yield, repeat), the same
+as before streaming existed. No concurrency was needed to add this.
+
 ## Pipeline
 `index.yml` → validate (`validator.py`) → compile (`compiler.py`, cached
-under `scenario_dir/.cache/`) → emit (`emitter.py`).
+under `scenario_dir/.cache/` — this now also decodes each media window
+into stream-chunk boundaries once, per window, not per chunk) → emit
+(`emitter.py`, which lazily reads+base64-encodes each chunk's bytes at
+emit time).
 
 ## Schema (`index.yml`)
 ```yaml
@@ -67,6 +101,11 @@ stamped at whatever the clock currently reads — it does not advance time.
   media always wins over generation for that event.
 - `controls.generate_audio: false` disables TTS globally; any
   `audio_stream_on` using only `text` (no `path`) becomes a validation error.
+- Authoring format is unchanged by the streaming rework above — you
+  still just write `webcam_on: {path: ...}` / `audio_stream_on: {text:
+  ...}`. What changed is what the compiler resolves it *into*: instead
+  of one path attached to the on-event, it's track metadata on the
+  event plus a run of `stream` chunks between on and off.
 
 ### Caching
 Compiled output (resolved timeline + all generated/synthesized media

@@ -17,6 +17,7 @@ by a hash of its inputs, so repeat compiles don't regenerate.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -190,6 +191,82 @@ def _voice_for(participant_id: str, driverName: str | None = None) -> tuple[str,
     # voice_id = "gmw/en-us"
     rate = 150 + (h % 40)  # small deterministic rate variation, 150-190 wpm
     return voice_id, rate
+
+
+def extract_video_frames(
+    clip_path: str, fps: float, cache_dir: str
+) -> list[str]:
+    """Decode `clip_path` ONCE into a sequence of JPEG frame files at
+    `fps`, cached by (clip_path mtime+size, fps). Returns frame paths in
+    order. This is what lets the compiler hand the emitter cheap,
+    already-sliced files to read - one ffmpeg subprocess per webcam/
+    screenshare window, not one per chunk (which would mean thousands
+    of subprocess spawns over a real interview length)."""
+    stat = os.stat(clip_path)
+    key = f"frames:{clip_path}:{stat.st_mtime_ns}:{stat.st_size}:{fps}"
+    digest = hashlib.sha256(key.encode()).hexdigest()[:16]
+    frames_dir = os.path.join(cache_dir, f"frames_{digest}")
+    manifest = os.path.join(frames_dir, "_manifest.json")
+
+    if os.path.isfile(manifest):
+        with open(manifest, "r") as f:
+            return json.load(f)
+
+    os.makedirs(frames_dir, exist_ok=True)
+    pattern = os.path.join(frames_dir, "frame_%06d.jpg")
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", clip_path, "-vf", f"fps={fps}", "-q:v", "3", pattern],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    frames = sorted(
+        os.path.join(frames_dir, f)
+        for f in os.listdir(frames_dir)
+        if f.startswith("frame_") and f.endswith(".jpg")
+    )
+    with open(manifest, "w") as f:
+        json.dump(frames, f)
+    return frames
+
+
+def extract_audio_pcm(src_path: str, sample_rate: int, cache_dir: str) -> str:
+    """Decode `src_path` ONCE into a flat raw PCM file (mono, 16-bit,
+    `sample_rate` Hz), cached by (src_path mtime+size, sample_rate).
+    The compiler then slices this single file into chunk byte-ranges by
+    offset/length - no per-chunk subprocess calls, no re-decoding."""
+    stat = os.stat(src_path)
+    key = f"pcm:{src_path}:{stat.st_mtime_ns}:{stat.st_size}:{sample_rate}"
+    out_path = _cache_path(cache_dir, key, ".pcm")
+    if os.path.isfile(out_path):
+        return out_path
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-i", src_path,
+            "-f", "s16le", "-ar", str(sample_rate), "-ac", "1",
+            out_path,
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return out_path
+
+
+def ffprobe_video_size(path: str) -> tuple[int, int]:
+    """(width, height) of the first video stream - used only to put
+    honest metadata on the webcam_on/screenshare_start EVENT (never a
+    path); the actual pixels travel separately as stream chunks."""
+    out = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=s=x:p=0", path,
+        ],
+        capture_output=True, text=True,
+    )
+    w, h = out.stdout.strip().split("x")
+    return int(w), int(h)
 
 
 def synthesize_tts(

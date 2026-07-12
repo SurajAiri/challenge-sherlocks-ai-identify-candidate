@@ -100,13 +100,13 @@ reads and does **not** advance it: `participant_join`,
 | `participant_join` | none, but **put `data.display_name` on it** | `participant_id` known. **Nothing auto-fills this from the `participants` dict** — if you omit `data.display_name`, the consumer gets a bare ID with no name, silently. Always author it explicitly. |
 | `participant_leave` | none | `participant_id` known |
 | `participant_update` | at least one of `data.display_name` / `data.role_hint`, and `display_name` if given must be non-empty | This is the **mid-session identity-change event** — e.g. a rename, or a corrected role. Use this, not a second `participant_join`, to represent "candidate changes their display name." A second `participant_join` for the same ID is undefined/ambiguous (looks like a rejoin) — don't use it for renames. |
-| `webcam_on` | `data.path` (image or video), must resolve to a real file | Pairing enforced: no double-`on` without an intervening `off`; no dangling `on` left open at end of timeline. Compiler loop-fits (loops if shorter, trims if longer, same ffmpeg mechanism for both) the source to exactly the `on..off` window once `webcam_off` is reached. |
+| `webcam_on` | **authored as** `data.path` (image or video), must resolve to a real file | Pairing enforced: no double-`on` without an intervening `off`; no dangling `on` left open at end of timeline. Compiler loop-fits (loops if shorter, trims if longer, same ffmpeg mechanism for both) the source to exactly the `on..off` window once `webcam_off` is reached. **On the wire this authored `path` is never sent** — the compiled `webcam_on` event instead carries `{width, height, fps}` track metadata, and the actual pixels go out separately as `stream` chunks (base64 JPEG frames) between this event and the matching `webcam_off`. |
 | `webcam_off` | none | Must have a matching open `webcam_on` |
-| `screenshare_start` | `data.path` **optional** | Pairing enforced identically to webcam (no double-start, no dangling start, no orphan end). If `data.path` given: validated + loop-fit exactly like webcam media. If omitted: valid marker-only event (share happened, no recorded content modeled). |
+| `screenshare_start` | `data.path` **optional** | Pairing enforced identically to webcam (no double-start, no dangling start, no orphan end). If `data.path` given: validated + loop-fit exactly like webcam media, same wire treatment as `webcam_on` above (metadata on the event, pixels as `stream` chunks tagged `modality: "screenshare"`). If omitted: valid marker-only event (share happened, no recorded content modeled, no stream chunks emitted). |
 | `screenshare_end` | none | Must have a matching open `screenshare_start` |
 | `speaking_start` / `speaking_end` | none | `participant_id` known only — **no pairing enforcement** (unlike webcam/screenshare). Author carefully. |
 | `transcript_segment` | freeform `data` (e.g. `{text: ...}`) | `participant_id` known only, no content validation |
-| `audio_stream_on` | `data.path` **or** `data.text` (at least one) | If `path` given, resolved + file-existence checked (explicit media always wins over generation). If only `text`, requires `controls.generate_audio: true`. |
+| `audio_stream_on` | **authored as** `data.path` **or** `data.text` (at least one) | If `path` given, resolved + file-existence checked (explicit media always wins over generation). If only `text`, requires `controls.generate_audio: true`. **On the wire the authored `path`/`text`-derived audio file is never sent as a path** — the compiled event carries `{sample_rate, encoding, channels}` (plus `text` if authored, for dashboard/debugging convenience), and raw PCM bytes go out separately as `stream` chunks between this event and the auto-derived `audio_stream_off`. |
 | ~~`audio_stream_off`~~ | — | **Never hand-author this.** Validator rejects it outright — the compiler auto-derives and inserts it right after measuring real audio duration. |
 | `silence` | numeric `data.duration` | clock-advancing, never emitted downstream |
 
@@ -145,12 +145,31 @@ relative paths resolve against `scenario_dir` (`os.path.join` +
 
 ### What actually gets sent on the wire
 
-`emit()` yields exactly two message kinds, in this order:
+`emit()` yields three message kinds:
 1. `("context", SessionContext)` — once, first. Contains only
    `calendar_invite`, `interview_schedule`, `interviewer_names`,
    `candidate_name`, `candidate_email`.
-2. `("event", Event)` — once per compiled timeline entry, each with
-   `t`, `type`, `participant_id`, `data`.
+2. `("event", Event)` — once per compiled discrete-state-change
+   timeline entry, each with `t`, `type`, `participant_id`, `data`.
+   For `webcam_on`/`audio_stream_on`/`screenshare_start`, `data` is
+   **track metadata only** (`width`/`height`/`fps` or
+   `sample_rate`/`encoding`/`channels`) — **never a file path.** A real
+   adapter can't hand you a path into its own filesystem; forcing
+   Engine code to read a `data.path` here would mean building against a
+   data contract that doesn't exist in production.
+3. `("stream", StreamFrame)` — one per media chunk, always falling
+   inside a currently-open `_on`/`_off` window for its
+   `participant_id`+`modality`. Fields: `t`, `participant_id`,
+   `modality` (`"audio"|"video"|"screenshare"`), `seq`, `data`
+   (base64-encoded chunk bytes). This is where the actual pixels/
+   samples travel — chunked and paced in real time, the way a live
+   adapter would push them, not handed over as one blob to fetch at
+   will.
+
+Both `event` and `stream` timestamps are resolved once, up front, at
+compile time and merged into a single flat sorted list — `emitter.py`
+is still one sequential walker (sleep-to-next-`t`, yield, repeat); no
+concurrency was needed to add streaming.
 
 There is **no separate "participant roster" message** — an Engine
 only learns about a participant by seeing their `participant_join`
@@ -165,7 +184,7 @@ uv run src/cli.py run scenarios/<slug>          # console dry-run
 uv run src/cli.py serve scenarios/<slug>        # ws://0.0.0.0:8765 — the real interface
 ```
 Wire format on `serve`: newline-free JSON per message,
-`{"kind": "context"|"event"|"error", "payload": {...}}`. Each
+`{"kind": "context"|"event"|"stream"|"error", "payload": {...}}`. Each
 connecting client gets a fresh replay from `t=0`. There is also an
 HTTP/SSE-based `api.py` (`/validate`, `/run`, `/evaluation`) — a
 different wire protocol from `serve`'s raw websocket; `serve`/`/run`
@@ -226,6 +245,19 @@ structured enough for a dashboard or scoring pass to use.
 
 ## Known gaps (don't silently paper over these)
 
+- **Stream chunk rate is a fixed, invented assumption, not a "native
+  rate."** `VIDEO_CHUNK_FPS`/`AUDIO_CHUNK_MS` in `compiler.py` (default
+  5fps video, 200ms audio) are convenience constants — our sources
+  (looped stills, TTS wavs) have no meaningful native rate to preserve.
+  A real adapter chunks at the source's actual camera fps / RTP
+  cadence. If your Engine's identifiers need a different granularity,
+  change the constants rather than working around a mismatch
+  downstream.
+- Chunks are base64-encoded inside JSON `stream` frames, not raw
+  binary websocket frames. That's a deliberate prototype-scope
+  simplification (~33% size overhead vs. real binary framing) — call
+  it out as a trade-off, don't silently treat it as "the same as
+  production."
 - `speaking_start`/`speaking_end` and `screenshare_start`/`data.path`-less
   markers have **no cross-participant overlap protection** —
   authoring is on you.

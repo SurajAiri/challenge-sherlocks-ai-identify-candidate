@@ -6,9 +6,12 @@ Usage:
 
 `run` is a human-readable dry-run (console output) for debugging a
 scenario. `serve` is the real interface: the Engine connects over a
-websocket and receives the same events as newline-free JSON messages -
-this is what a real adapter's wire format should look like, so the
-Engine never needs a special code path for "talking to the simulator".
+websocket and receives newline-free JSON messages of three kinds -
+`context` (once), `event` (discrete state changes), and `stream`
+(base64-encoded raw media chunks for a currently-open webcam/audio/
+screenshare track) - this is what a real adapter's wire format should
+look like, so the Engine never needs a special code path for "talking
+to the simulator".
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ import json
 import sys
 
 from simulator.compiler import compile_scenario
-from simulator.emitter import describe_event, emit
+from simulator.emitter import describe_event, describe_stream_frame, emit
 from simulator.validator import ValidationError
 
 
@@ -53,6 +56,8 @@ async def _run_console(scenario_dir: str) -> None:
                 f"[SESSION START] candidate={payload.candidate_name} "
                 f"<{payload.candidate_email}> interviewers={payload.interviewer_names}"
             )
+        elif kind == "stream":
+            print(describe_stream_frame(payload, scenario))
         else:
             print(describe_event(payload, scenario))
 
