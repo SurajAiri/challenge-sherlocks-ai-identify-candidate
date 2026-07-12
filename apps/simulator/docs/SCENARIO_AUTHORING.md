@@ -61,9 +61,16 @@ scenarios-ref/demo_clean/ # normal ones goes in scenarios/ [and it's ignored by 
   nothing gradable and no runtime knobs live here.
 - **`controls`** — runtime/playback knobs, not scenario content:
   `speed_multiplier` (crank this up, e.g. `20.0`, so demo runs don't
-  take real interview-length time) and `generate_audio` (turn off if
+  take real interview-length time), `generate_audio` (turn off if
   you're supplying real audio files instead of letting the simulator
-  TTS the lines). Both optional, both default sensibly.
+  TTS the lines), and two stream-granularity knobs — `video_fps`
+  (default `5.0`) and `audio_chunk_ms` (default `200`) — controlling
+  how finely webcam/screenshare and audio windows get chunked into
+  `stream` messages. These two are deliberately independent, not one
+  shared rate: vary `video_fps` down while leaving `audio_chunk_ms`
+  alone (or vice versa) to test whether your Engine degrades gracefully
+  when one modality is coarser than the other. All four are optional
+  and default sensibly.
 - **`context`** — the "external metadata" a real system would already
   have before the meeting even starts: calendar invite, scheduled
   time, interviewer names, and the candidate's name/email as HR
@@ -145,9 +152,9 @@ wrong," you've written a useful scenario. Some recipes:
 ## Running what you wrote
 
 ```bash
-uv run src/cli.py validate scenarios/demo_clean   # catch mistakes before anything else
-uv run src/cli.py run scenarios/demo_clean        # console dry-run, human-readable
-uv run src/cli.py serve scenarios/demo_clean      # the real thing: opens a websocket
+uv run python -m simulator validate scenarios/demo_clean   # catch mistakes before anything else
+uv run python -m simulator run scenarios/demo_clean        # console dry-run, human-readable
+uv run python -m simulator serve scenarios/demo_clean      # the real thing: opens a websocket
 ```
 
 `validate` will tell you exactly what's wrong (missing fields, dangling

@@ -31,7 +31,7 @@ lifecycle + codec metadata (width/height/fps, sample_rate/encoding),
 never a file path.
 
 Run with:
-    uv run uvicorn api:app --host 0.0.0.0 --port 8000
+    uv run uvicorn simulator.api:app --host 0.0.0.0 --port 8080
 (from inside src/, same convention as cli.py's flat imports)
 """
 

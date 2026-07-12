@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simulator"
-version = "0.1.0"
+version = "0.2.0"
 requires-python = ">=3.12"
 readme = "README.md"
 authors = [{ name = "Suraj Airi", email = "surajairi.ml@gmail.com" }]
@@ -19,8 +19,8 @@ dependencies = [
     "websockets>=16.1",
 ]
 
-[project.optional-dependencies]
-dev = ["ruff>=0.12.1"]
+[dependency-groups]
+dev = ["ruff>=0.12.1", "pytest>=8.0.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

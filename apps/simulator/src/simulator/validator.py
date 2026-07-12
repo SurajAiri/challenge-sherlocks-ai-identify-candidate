@@ -50,7 +50,7 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
         if not metadata.get(key):
             errors.append(f"metadata.{key} is required")
 
-    # --- controls (optional section - both fields have defaults) ---
+    # --- controls (optional section - all fields have defaults) ---
     controls = raw.get("controls") or {}
     generate_audio = controls.get("generate_audio", True)
     if not isinstance(generate_audio, bool):
@@ -58,6 +58,12 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
     speed_multiplier = controls.get("speed_multiplier", 1.0)
     if not isinstance(speed_multiplier, (int, float)):
         errors.append("controls.speed_multiplier must be a number")
+    video_fps = controls.get("video_fps", 5.0)
+    if not isinstance(video_fps, (int, float)) or video_fps <= 0:
+        errors.append("controls.video_fps must be a positive number")
+    audio_chunk_ms = controls.get("audio_chunk_ms", 200)
+    if not isinstance(audio_chunk_ms, int) or isinstance(audio_chunk_ms, bool) or audio_chunk_ms <= 0:
+        errors.append("controls.audio_chunk_ms must be a positive integer")
 
     # --- context ---
     context = raw["context"] or {}
@@ -199,7 +205,7 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
                 if not generate_audio:
                     errors.append(
                         f"{loc}: audio_stream_on has only 'text' (no data.path) "
-                        f"but metadata.generate_audio is false"
+                        f"but controls.generate_audio is false"
                     )
             else:
                 errors.append(f"{loc}: audio_stream_on requires data.path or data.text")

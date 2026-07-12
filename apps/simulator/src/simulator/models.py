@@ -126,6 +126,14 @@ class ScenarioControls:
     speed_multiplier: float = 1.0
     generate_audio: bool = True  # TTS-generate audio for audio_stream_on
                                   # events that only specify `text`, no path
+    # Stream-chunk granularity. Deliberately TWO separate knobs, not one
+    # shared "fps" - audio and video have different natural granularities
+    # in real adapters (RTP audio packets ~20ms regardless of camera fps),
+    # and this challenge specifically needs them independently tunable:
+    # a scenario testing "does voice-cloning detection degrade gracefully
+    # at low video fps" requires varying one without the other.
+    video_fps: float = 5.0
+    audio_chunk_ms: int = 200
 
 
 @dataclass

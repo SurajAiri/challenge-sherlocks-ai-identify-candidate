@@ -41,6 +41,14 @@ or defaulted fields).
 - `generate_audio` — optional bool, default `true`. If `false`, every
   `audio_stream_on` in the timeline **must** supply `data.path` (an
   audio-only `text` becomes a validation error).
+- `video_fps` — optional number, default `5.0`, must be positive.
+  Frame rate for `stream` chunks derived from `webcam_on`/
+  `screenshare_start` windows. This is a chosen sampling granularity,
+  not a claim about a "native" camera rate.
+- `audio_chunk_ms` — optional positive integer, default `200`.
+  Millisecond size of each raw-PCM `stream` chunk derived from
+  `audio_stream_on` windows. Deliberately independent of `video_fps` —
+  see "Stream chunk rate" below for why.
 
 **`evaluation`** — optional section, grading/dashboard-only, **never
 sent down `emit()`'s event stream** — only reachable via the
@@ -179,9 +187,9 @@ was authored).
 ### Running / validating
 
 ```
-uv run src/cli.py validate scenarios/<slug>
-uv run src/cli.py run scenarios/<slug>          # console dry-run
-uv run src/cli.py serve scenarios/<slug>        # ws://0.0.0.0:8765 — the real interface
+uv run python -m simulator validate scenarios/<slug>
+uv run python -m simulator run scenarios/<slug>          # console dry-run
+uv run python -m simulator serve scenarios/<slug>        # ws://0.0.0.0:8765 — the real interface
 ```
 Wire format on `serve`: newline-free JSON per message,
 `{"kind": "context"|"event"|"stream"|"error", "payload": {...}}`. Each
@@ -245,14 +253,17 @@ structured enough for a dashboard or scoring pass to use.
 
 ## Known gaps (don't silently paper over these)
 
-- **Stream chunk rate is a fixed, invented assumption, not a "native
-  rate."** `VIDEO_CHUNK_FPS`/`AUDIO_CHUNK_MS` in `compiler.py` (default
-  5fps video, 200ms audio) are convenience constants — our sources
-  (looped stills, TTS wavs) have no meaningful native rate to preserve.
-  A real adapter chunks at the source's actual camera fps / RTP
-  cadence. If your Engine's identifiers need a different granularity,
-  change the constants rather than working around a mismatch
-  downstream.
+- **Stream chunk rate (`controls.video_fps`/`controls.audio_chunk_ms`)
+  is a chosen, scenario-authorable sampling granularity, not a "native
+  rate."** Our sources (looped stills, TTS wavs) have no meaningful
+  native rate to preserve, so pick these to match what your Engine's
+  identifiers actually need to sample. **Deliberately two separate
+  knobs, not one shared "fps"**: real adapters chunk audio (RTP
+  packets, ~20ms) and video (camera fps) at independently-driven
+  rates, and this challenge specifically benefits from testing them
+  independently — e.g. a scenario with low `video_fps` but normal
+  `audio_chunk_ms` stresses whether voice-cloning detection degrades
+  gracefully when video bandwidth is constrained but audio isn't.
 - Chunks are base64-encoded inside JSON `stream` frames, not raw
   binary websocket frames. That's a deliberate prototype-scope
   simplification (~33% size overhead vs. real binary framing) — call

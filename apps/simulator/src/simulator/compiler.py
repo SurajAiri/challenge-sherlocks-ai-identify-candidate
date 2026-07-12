@@ -1,9 +1,13 @@
 """
 Compile: validated raw dict -> CompiledScenario, cached as a .compiled
 artifact under scenario_dir/.cache/ so repeat runs don't redo TTS
-generation or ffmpeg synthesis. Invalidated by a content hash of
-index.yml - edit the source, next compile detects the mismatch and
-redoes the work.
+generation or ffmpeg synthesis. Invalidated by a hash of index.yml's
+bytes PLUS the (path, mtime, size) of every media file it references
+(webcam_on/screenshare_start/audio_stream_on `data.path`) - editing
+index.yml OR swapping/re-recording a referenced media file under the
+same filename both correctly bust the cache. Hashing mtime+size rather
+than full file content mirrors the same cheap-identity approach
+media_gen.py already uses for its own per-asset cache keys.
 
 Timeline resolution is a single forward pass over the authored event
 list, in list order:
@@ -59,14 +63,9 @@ from simulator.validator import ValidationError, resolve_media_path, validate
 CACHE_DIRNAME = ".cache"
 COMPILED_FILENAME = "compiled.json"
 
-# Chunking rates. These are a stated, tunable assumption - NOT a claim
-# about a "real" native rate, since our sources (looped stills, TTS
-# wavs) don't have a meaningful native one. A real adapter would chunk
-# at the source's actual camera fps / RTP packet cadence instead; pick
-# these to reflect whatever your Engine's identifiers actually need to
-# sample, not for their own sake.
-VIDEO_CHUNK_FPS = 5.0
-AUDIO_CHUNK_MS = 200
+# Fixed codec choice, not a scenario knob - unlike video_fps/audio_chunk_ms
+# (controls.py), the PCM sample rate isn't something a scenario author has
+# a reason to vary per-scenario.
 AUDIO_SAMPLE_RATE = 16000
 
 
@@ -75,9 +74,44 @@ def load_yaml(index_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def _source_hash(index_path: str) -> str:
+def _referenced_media_paths(raw: dict, scenario_dir: str) -> list[str]:
+    """Every resolved media path an author could point at from the
+    timeline (webcam_on / screenshare_start / audio_stream_on). Used
+    only for cache-invalidation identity below - existence isn't
+    checked here, that's validate()'s job."""
+    paths: list[str] = []
+    for ev in raw.get("timeline") or []:
+        ev = ev or {}
+        if ev.get("type") not in ("webcam_on", "screenshare_start", "audio_stream_on"):
+            continue
+        path = (ev.get("data") or {}).get("path")
+        if path:
+            paths.append(resolve_media_path(path, scenario_dir))
+    return paths
+
+
+def _source_hash(index_path: str, raw: dict, scenario_dir: str) -> str:
+    """Content hash of index.yml's bytes, plus the identity (path,
+    mtime, size) of every media file it references. Either changing
+    the yaml OR replacing a referenced media file (same filename, new
+    content - e.g. re-recording scenario_dir/media/candidate.mp4)
+    must invalidate the cache; hashing index.yml alone misses the
+    second case entirely."""
+    h = hashlib.sha256()
     with open(index_path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
+        h.update(f.read())
+    for path in sorted(_referenced_media_paths(raw, scenario_dir)):
+        h.update(path.encode())
+        try:
+            stat = os.stat(path)
+            h.update(f":{stat.st_mtime_ns}:{stat.st_size}".encode())
+        except OSError:
+            # Missing file - validate() (called right after, on a cache
+            # miss) is what actually reports this as a proper error;
+            # here we just need the hash to still be well-defined and
+            # to change once the file starts/stops existing.
+            h.update(b":MISSING")
+    return h.hexdigest()
 
 
 def _to_jsonable(scenario: CompiledScenario, source_hash: str) -> dict:
@@ -144,16 +178,17 @@ def _from_jsonable(d: dict) -> CompiledScenario:
 
 
 def _video_chunks(
-    clip_path: str, t_on: float, media_cache_dir: str, pid: str, modality: str
+    clip_path: str, t_on: float, media_cache_dir: str, pid: str, modality: str,
+    fps: float,
 ) -> list[StreamChunk]:
     """Expand one webcam/screenshare on..off window into per-frame
     StreamChunks. Frames are decoded ONCE (extract_video_frames caches
     the whole batch) - this just assigns timestamps/seq, no ffmpeg call
     per chunk."""
-    frames = extract_video_frames(clip_path, VIDEO_CHUNK_FPS, media_cache_dir)
+    frames = extract_video_frames(clip_path, fps, media_cache_dir)
     return [
         StreamChunk(
-            t=t_on + i / VIDEO_CHUNK_FPS,
+            t=t_on + i / fps,
             participant_id=pid,
             modality=modality,
             seq=i,
@@ -163,13 +198,15 @@ def _video_chunks(
     ]
 
 
-def _audio_chunks(pcm_path: str, t_on: float, pid: str) -> list[StreamChunk]:
+def _audio_chunks(
+    pcm_path: str, t_on: float, pid: str, chunk_ms: int
+) -> list[StreamChunk]:
     """Expand one audio_stream_on..off window into fixed-size raw-PCM
     byte-range StreamChunks, all pointing at the SAME already-decoded
     flat pcm_path (extract_audio_pcm decodes once) - just offset/length
     bookkeeping here, no re-decoding per chunk."""
     bytes_per_sample = 2  # s16le mono
-    chunk_bytes = int(AUDIO_SAMPLE_RATE * (AUDIO_CHUNK_MS / 1000) * bytes_per_sample)
+    chunk_bytes = int(AUDIO_SAMPLE_RATE * (chunk_ms / 1000) * bytes_per_sample)
     total_bytes = os.path.getsize(pcm_path)
 
     chunks = []
@@ -179,7 +216,7 @@ def _audio_chunks(pcm_path: str, t_on: float, pid: str) -> list[StreamChunk]:
         length = min(chunk_bytes, total_bytes - offset)
         chunks.append(
             StreamChunk(
-                t=t_on + i * (AUDIO_CHUNK_MS / 1000),
+                t=t_on + i * (chunk_ms / 1000),
                 participant_id=pid,
                 modality="audio",
                 seq=i,
@@ -207,6 +244,8 @@ def _compile_fresh(
     controls = ScenarioControls(
         speed_multiplier=float(ctl.get("speed_multiplier", 1.0)),
         generate_audio=bool(ctl.get("generate_audio", True)),
+        video_fps=float(ctl.get("video_fps", 5.0)),
+        audio_chunk_ms=int(ctl.get("audio_chunk_ms", 200)),
     )
 
     ev = raw.get("evaluation") or {}
@@ -276,10 +315,14 @@ def _compile_fresh(
                     # marker + track metadata only - no path. Actual
                     # frames arrive as "stream" chunks between this and
                     # the matching webcam_off, same as a real adapter.
-                    data={"width": width, "height": height, "fps": VIDEO_CHUNK_FPS},
+                    data={"width": width, "height": height, "fps": controls.video_fps},
                 )
             )
-            output.extend(_video_chunks(clip_path, t_on, media_cache_dir, pid, "video"))
+            output.extend(
+                _video_chunks(
+                    clip_path, t_on, media_cache_dir, pid, "video", controls.video_fps
+                )
+            )
             output.append(
                 Event(
                     t=current_t, type=EventType.WEBCAM_OFF, participant_id=pid, data={}
@@ -329,11 +372,14 @@ def _compile_fresh(
                     t=t_on,
                     type=EventType.SCREENSHARE_START,
                     participant_id=pid,
-                    data={"width": width, "height": height, "fps": VIDEO_CHUNK_FPS},
+                    data={"width": width, "height": height, "fps": controls.video_fps},
                 )
             )
             output.extend(
-                _video_chunks(clip_path, t_on, media_cache_dir, pid, "screenshare")
+                _video_chunks(
+                    clip_path, t_on, media_cache_dir, pid, "screenshare",
+                    controls.video_fps,
+                )
             )
             output.append(
                 Event(
@@ -375,7 +421,7 @@ def _compile_fresh(
                     data=on_data,
                 )
             )
-            output.extend(_audio_chunks(pcm_path, current_t, pid))
+            output.extend(_audio_chunks(pcm_path, current_t, pid, controls.audio_chunk_ms))
             current_t += duration
             output.append(
                 Event(
@@ -426,7 +472,11 @@ def compile_scenario(
     if not os.path.isfile(index_path):
         raise FileNotFoundError(f"no {index_filename} found in {scenario_dir}")
 
-    source_hash = _source_hash(index_path)
+    # Loaded up front (cheap - it's a small yaml file) because the cache
+    # key itself now depends on which media files index.yml references,
+    # not just index.yml's own bytes - see _source_hash.
+    raw = load_yaml(index_path)
+    source_hash = _source_hash(index_path, raw, scenario_dir)
     cache_path = os.path.join(scenario_dir, CACHE_DIRNAME, COMPILED_FILENAME)
 
     if os.path.isfile(cache_path):
@@ -434,9 +484,9 @@ def compile_scenario(
             cached = json.load(f)
         if cached.get("source_hash") == source_hash:
             return _from_jsonable(cached)
-        # else: stale, fall through and recompile
+        # else: stale (index.yml or a referenced media file changed),
+        # fall through and recompile
 
-    raw = load_yaml(index_path)
     errors = validate(raw, scenario_dir)
     if errors:
         raise ValidationError(errors)

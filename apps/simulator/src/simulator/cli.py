@@ -1,8 +1,8 @@
 """
 Usage:
-    uv run src/cli.py validate scenarios/demo_clean
-    uv run src/cli.py run scenarios/demo_clean
-    uv run src/cli.py serve scenarios/demo_clean [--host 0.0.0.0] [--port 8765]
+    uv run python -m simulator validate scenarios/demo_clean
+    uv run python -m simulator run scenarios/demo_clean
+    uv run python -m simulator serve scenarios/demo_clean [--host 0.0.0.0] [--port 8765]
 
 `run` is a human-readable dry-run (console output) for debugging a
 scenario. `serve` is the real interface: the Engine connects over a

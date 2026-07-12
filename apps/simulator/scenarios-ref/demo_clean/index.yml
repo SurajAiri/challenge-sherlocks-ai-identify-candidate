@@ -14,6 +14,8 @@ metadata:
 controls:
   speed_multiplier: 20.0
   generate_audio: true
+  video_fps: 5.0        # default - shown explicitly here as a reference example
+  audio_chunk_ms: 200   # default - shown explicitly here as a reference example
 
 context:
   candidate_name: "Suraj Thapa"

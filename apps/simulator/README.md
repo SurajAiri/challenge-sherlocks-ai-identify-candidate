@@ -13,16 +13,17 @@ so the Engine has no special code path for "talking to the simulator".
 
 ## Usage
 ```
-uv run src/cli.py validate scenarios/demo_clean
-uv run src/cli.py run scenarios/demo_clean          # console dry-run
-uv run src/cli.py serve scenarios/demo_clean         # websocket, JSON wire format
+uv run python -m simulator validate scenarios/demo_clean
+uv run python -m simulator run scenarios/demo_clean          # console dry-run
+uv run python -m simulator serve scenarios/demo_clean         # websocket, JSON wire format
 ```
 `serve` is the real interface: it opens `ws://0.0.0.0:8765` and streams
 `{"kind": "context"|"event", "payload": {...}}` JSON messages — this is
 what the Engine should actually connect to.
 
-There's also an HTTP/SSE sibling, `api.py` (`uv run uvicorn api:app`), with
-three POST endpoints, all taking `{"scenario_dir": "scenarios/demo_clean"}`:
+There's also an HTTP/SSE sibling, `api.py` — run it with
+`uv run uvicorn simulator.api:app --port 8080` (or just `uv run main.py`) —
+with three POST endpoints, all taking `{"scenario_dir": "scenarios/demo_clean"}`:
 `/validate` (author sanity check, no grading fields returned), `/run` (SSE
 stream, same wire contract as `serve`), and `/evaluation` (grading/dashboard
 metadata: ground truth, difficulty, challenging points, expected evidence —
@@ -48,11 +49,15 @@ Both `serve` and `/run` emit three message kinds, in this shape:
   base64-encoded bytes, tagged `participant_id` + `modality`
   (`"audio"|"video"|"screenshare"`) + `seq`, paced in real time between
   the matching `_on`/`_off` events (scaled by `speed_multiplier`, same
-  clock as everything else). Chunk rate is a stated, tunable assumption
-  (`VIDEO_CHUNK_FPS`, `AUDIO_CHUNK_MS` in `compiler.py`), not a claim
-  about a source's "native" rate — our sources (looped stills, TTS
-  wavs) don't have one. A real adapter would chunk at the actual camera
-  fps / RTP cadence instead.
+  clock as everything else). Chunk rate is a stated, per-scenario
+  assumption — `controls.video_fps` (default `5.0`) and
+  `controls.audio_chunk_ms` (default `200`), authored in `index.yml`,
+  not a claim about a source's "native" rate. **Deliberately two
+  independent knobs, not one shared fps** — real adapters chunk audio
+  (RTP packets, ~20ms) and video (camera fps) at unrelated rates, and
+  scenarios can legitimately want to vary one without the other (e.g.
+  low video fps + normal audio chunking, to test graceful degradation
+  under constrained video bandwidth).
 
 Both event and stream timestamps are computed once, up front, at
 compile time and merged into one flat sorted list — `emitter.py` stays
