@@ -25,6 +25,7 @@ from simulator.validator import ValidationError
 
 
 def cmd_validate(scenario_dir: str) -> None:
+    print(f"validating scenario at {scenario_dir}")
     try:
         scenario = compile_scenario(scenario_dir)
     except ValidationError as e:
@@ -38,6 +39,7 @@ def cmd_validate(scenario_dir: str) -> None:
 
 
 async def _run_console(scenario_dir: str) -> None:
+    print(f"--- running scenario at {scenario_dir} ---")
     scenario = compile_scenario(scenario_dir)
     print(
         f"--- running '{scenario.metadata.name}' "
