@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "engine"
+version = "0.1.0"
+description = "A GenAI project built with LangChain and modern Python tools"
+readme = "README.md"
+authors = [{ name = "Suraj Airi", email = "surajairi.ml@gmail.com" }]
+license = { text = "MIT license" }
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.139.0",
+    "litellm>=1.92.0",
+    "python-dotenv>=1.2.2",
+    "uvicorn>=0.51.0",
+]
+
+[dependency-groups]
+dev = ["ruff>=0.12.1"]
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"

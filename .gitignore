@@ -36,3 +36,14 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+.venv
+
+# Ruff stuff:
+.ruff_cache/
+
+
+logs/
+*.log.*
+*.log
+
+playground/
