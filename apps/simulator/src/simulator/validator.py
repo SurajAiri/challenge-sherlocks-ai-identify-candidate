@@ -5,12 +5,13 @@ Common-sense level checks only: required fields present, references
 resolve, media paths that ARE given resolve to real files. Optional
 fields may be null. No schema-framework.
 """
+
 from __future__ import annotations
 
 import os
 from typing import Any
 
-from models import AUTHORABLE_EVENT_TYPES
+from simulator.models import AUTHORABLE_EVENT_TYPES
 
 
 class ValidationError(Exception):
@@ -98,7 +99,9 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
         if ev_type != "silence" and pid is None:
             errors.append(f"{loc}: '{ev_type}' requires participant_id")
         if pid is not None and pid not in known_ids:
-            errors.append(f"{loc}.participant_id '{pid}' is not declared in participants")
+            errors.append(
+                f"{loc}.participant_id '{pid}' is not declared in participants"
+            )
 
         data = ev.get("data") or {}
 
@@ -146,9 +149,7 @@ def validate(raw: dict[str, Any], scenario_dir: str) -> list[str]:
                         f"but metadata.generate_audio is false"
                     )
             else:
-                errors.append(
-                    f"{loc}: audio_stream_on requires data.path or data.text"
-                )
+                errors.append(f"{loc}: audio_stream_on requires data.path or data.text")
 
     for pid, still_open in webcam_open.items():
         if still_open:

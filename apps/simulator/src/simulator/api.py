@@ -26,11 +26,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from compiler import compile_scenario
-from emitter import emit
-from validator import ValidationError
+from simulator.compiler import compile_scenario
+from simulator.emitter import emit
+from simulator.validator import ValidationError
 
-app = FastAPI(title="sherlock-sim")
+app = FastAPI(title="Sherlocks Simulator API", version="0.1.0")
 
 
 class ScenarioRequest(BaseModel):

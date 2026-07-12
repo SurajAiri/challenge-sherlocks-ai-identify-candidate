@@ -10,6 +10,7 @@ websocket and receives the same events as newline-free JSON messages -
 this is what a real adapter's wire format should look like, so the
 Engine never needs a special code path for "talking to the simulator".
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,9 +19,9 @@ import dataclasses
 import json
 import sys
 
-from compiler import compile_scenario
-from emitter import describe_event, emit
-from validator import ValidationError
+from simulator.compiler import compile_scenario
+from simulator.emitter import describe_event, emit
+from simulator.validator import ValidationError
 
 
 def cmd_validate(scenario_dir: str) -> None:
@@ -38,12 +39,16 @@ def cmd_validate(scenario_dir: str) -> None:
 
 async def _run_console(scenario_dir: str) -> None:
     scenario = compile_scenario(scenario_dir)
-    print(f"--- running '{scenario.metadata.name}' "
-          f"(speed={scenario.metadata.speed_multiplier}x) ---\n")
+    print(
+        f"--- running '{scenario.metadata.name}' "
+        f"(speed={scenario.metadata.speed_multiplier}x) ---\n"
+    )
     async for kind, payload in emit(scenario):
         if kind == "context":
-            print(f"[SESSION START] candidate={payload.candidate_name} "
-                  f"<{payload.candidate_email}> interviewers={payload.interviewer_names}")
+            print(
+                f"[SESSION START] candidate={payload.candidate_name} "
+                f"<{payload.candidate_email}> interviewers={payload.interviewer_names}"
+            )
         else:
             print(describe_event(payload, scenario))
 

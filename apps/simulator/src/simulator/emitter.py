@@ -9,13 +9,14 @@ sampling rate (e.g. 2fps for video, native rate for audio). This is
 deliberate: the simulator's clock and a media codec's clock are
 different concerns and must not be conflated into one "fps" knob.
 """
+
 from __future__ import annotations
 
 import asyncio
 import time
 from typing import AsyncIterator
 
-from models import CompiledScenario, Event, EventType, SessionContext
+from simulator.models import CompiledScenario, Event, EventType, SessionContext
 
 
 async def emit(scenario: CompiledScenario) -> AsyncIterator[tuple[str, object]]:

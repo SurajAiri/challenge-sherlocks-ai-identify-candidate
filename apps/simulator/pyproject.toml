@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "simulator"
+version = "0.1.0"
+requires-python = ">=3.12"
+readme = "README.md"
+authors = [{ name = "Suraj Airi", email = "surajairi.ml@gmail.com" }]
+license = { text = "MIT license" }
+dependencies = [
+    "fastapi>=0.139.0",
+    "pydantic>=2.13.4",
+    "pyttsx3>=2.99",
+    "pyyaml>=6.0.3",
+    "uvicorn>=0.51.0",
+    "websockets>=16.1",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.12.1"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"

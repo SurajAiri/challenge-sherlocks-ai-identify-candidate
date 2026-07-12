@@ -25,6 +25,7 @@ necessarily in final chronological order - webcam_on's final record is
 only completed once webcam_off is reached), the full list is sorted by
 t once at the end.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -32,12 +33,16 @@ import json
 import os
 import yaml
 
-from media_gen import ffprobe_duration, synthesize_tts, synthesize_webcam_clip
-from models import (
-    CompiledScenario, Event, EventType, Participant,
-    ScenarioMetadata, SessionContext,
+from simulator.media_gen import ffprobe_duration, synthesize_tts, synthesize_webcam_clip
+from simulator.models import (
+    CompiledScenario,
+    Event,
+    EventType,
+    Participant,
+    ScenarioMetadata,
+    SessionContext,
 )
-from validator import ValidationError, resolve_media_path, validate
+from simulator.validator import ValidationError, resolve_media_path, validate
 
 CACHE_DIRNAME = ".cache"
 COMPILED_FILENAME = "compiled.json"
@@ -60,7 +65,12 @@ def _to_jsonable(scenario: CompiledScenario, source_hash: str) -> dict:
         "context": vars(scenario.context),
         "participants": {pid: vars(p) for pid, p in scenario.participants.items()},
         "timeline": [
-            {"t": e.t, "type": e.type.value, "participant_id": e.participant_id, "data": e.data}
+            {
+                "t": e.t,
+                "type": e.type.value,
+                "participant_id": e.participant_id,
+                "data": e.data,
+            }
             for e in scenario.timeline
         ],
         "scenario_dir": scenario.scenario_dir,
@@ -73,7 +83,12 @@ def _from_jsonable(d: dict) -> CompiledScenario:
         context=SessionContext(**d["context"]),
         participants={pid: Participant(**p) for pid, p in d["participants"].items()},
         timeline=[
-            Event(t=e["t"], type=EventType(e["type"]), participant_id=e["participant_id"], data=e["data"])
+            Event(
+                t=e["t"],
+                type=EventType(e["type"]),
+                participant_id=e["participant_id"],
+                data=e["data"],
+            )
             for e in d["timeline"]
         ],
         scenario_dir=d["scenario_dir"],
@@ -101,8 +116,11 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
     )
 
     participants = {
-        pid: Participant(participant_id=pid, display_name=pdata["display_name"],
-                          role_hint=(pdata or {}).get("role_hint"))
+        pid: Participant(
+            participant_id=pid,
+            display_name=pdata["display_name"],
+            role_hint=(pdata or {}).get("role_hint"),
+        )
         for pid, pdata in raw["participants"].items()
     }
 
@@ -110,7 +128,9 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
 
     current_t = 0.0
     output: list[Event] = []
-    pending_webcam: dict[str, tuple[float, str]] = {}  # pid -> (t_on, resolved_src_path)
+    pending_webcam: dict[
+        str, tuple[float, str]
+    ] = {}  # pid -> (t_on, resolved_src_path)
 
     for ev in raw["timeline"]:
         ev = ev or {}
@@ -130,11 +150,22 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
         if ev_type == "webcam_off":
             t_on, src_path = pending_webcam.pop(pid)
             duration = current_t - t_on
-            clip_path = synthesize_webcam_clip(src_path, max(duration, 0.1), media_cache_dir)
-            output.append(Event(t=t_on, type=EventType.WEBCAM_ON, participant_id=pid,
-                                 data={"path": clip_path}))
-            output.append(Event(t=current_t, type=EventType.WEBCAM_OFF, participant_id=pid,
-                                 data={}))
+            clip_path = synthesize_webcam_clip(
+                src_path, max(duration, 0.1), media_cache_dir
+            )
+            output.append(
+                Event(
+                    t=t_on,
+                    type=EventType.WEBCAM_ON,
+                    participant_id=pid,
+                    data={"path": clip_path},
+                )
+            )
+            output.append(
+                Event(
+                    t=current_t, type=EventType.WEBCAM_OFF, participant_id=pid, data={}
+                )
+            )
             continue
 
         if ev_type == "audio_stream_on":
@@ -150,15 +181,29 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
             on_data = {"path": final_path}
             if text:
                 on_data["text"] = text
-            output.append(Event(t=current_t, type=EventType.AUDIO_STREAM_ON,
-                                 participant_id=pid, data=on_data))
+            output.append(
+                Event(
+                    t=current_t,
+                    type=EventType.AUDIO_STREAM_ON,
+                    participant_id=pid,
+                    data=on_data,
+                )
+            )
             current_t += duration
-            output.append(Event(t=current_t, type=EventType.AUDIO_STREAM_OFF,
-                                 participant_id=pid, data={}))
+            output.append(
+                Event(
+                    t=current_t,
+                    type=EventType.AUDIO_STREAM_OFF,
+                    participant_id=pid,
+                    data={},
+                )
+            )
             continue
 
         # all other instantaneous events: don't advance the clock
-        output.append(Event(t=current_t, type=EventType(ev_type), participant_id=pid, data=data))
+        output.append(
+            Event(t=current_t, type=EventType(ev_type), participant_id=pid, data=data)
+        )
 
     if pending_webcam:
         # validation should have already caught this, but guard anyway
@@ -168,12 +213,17 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
     output.sort(key=lambda e: e.t)
 
     return CompiledScenario(
-        metadata=metadata, context=context, participants=participants,
-        timeline=output, scenario_dir=scenario_dir,
+        metadata=metadata,
+        context=context,
+        participants=participants,
+        timeline=output,
+        scenario_dir=scenario_dir,
     )
 
 
-def compile_scenario(scenario_dir: str, index_filename: str = "index.yml") -> CompiledScenario:
+def compile_scenario(
+    scenario_dir: str, index_filename: str = "index.yml"
+) -> CompiledScenario:
     index_path = os.path.join(scenario_dir, index_filename)
     if not os.path.isfile(index_path):
         raise FileNotFoundError(f"no {index_filename} found in {scenario_dir}")
