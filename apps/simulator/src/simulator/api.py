@@ -52,7 +52,7 @@ class ScenarioRequest(BaseModel):
 
 def _compile_or_4xx(scenario_dir: str):
     try:
-        return compile_scenario(scenario_dir)
+        return compile_scenario(scenario_dir, driverName="espeak")
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValidationError as e:

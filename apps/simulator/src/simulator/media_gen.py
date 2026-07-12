@@ -163,29 +163,38 @@ def synthesize_webcam_clip(src_path: str, duration: float, cache_dir: str) -> st
 _VOICE_POOL_CACHE: list[str] | None = None
 
 
-def _voice_pool() -> list[str]:
+def _voice_pool(driverName: str | None = None) -> list[str]:
     global _VOICE_POOL_CACHE
     if _VOICE_POOL_CACHE is None:
         import pyttsx3
 
-        engine = pyttsx3.init()
-        _VOICE_POOL_CACHE = [v.id for v in engine.getProperty("voices")]
+        engine = pyttsx3.init(driverName)
+        voices = [v.id for v in engine.getProperty("voices") if "en-" in v.id.lower()]
+        print(f"Found {len(voices)} English TTS voices: {voices}")
+
+        if not voices:
+            raise RuntimeError("No English TTS voices found.")
+
+        _VOICE_POOL_CACHE = sorted(voices)
         engine.stop()
     return _VOICE_POOL_CACHE
 
 
-def _voice_for(participant_id: str) -> tuple[str, int]:
+def _voice_for(participant_id: str, driverName: str | None = None) -> tuple[str, int]:
     """Returns (voice_id, rate) deterministically derived from participant_id,
     so the same participant always gets the same voice across compiles,
     and different participants are audibly distinguishable."""
-    pool = _voice_pool()
+    pool = _voice_pool(driverName)
     h = int(hashlib.md5(participant_id.encode()).hexdigest(), 16)
     voice_id = pool[h % len(pool)]
+    # voice_id = "gmw/en-us"
     rate = 150 + (h % 40)  # small deterministic rate variation, 150-190 wpm
     return voice_id, rate
 
 
-def synthesize_tts(text: str, participant_id: str, cache_dir: str) -> str:
+def synthesize_tts(
+    text: str, participant_id: str, cache_dir: str, driverName: str | None = None
+) -> str:
     """Generate speech audio for `text` in a voice deterministically
     assigned to `participant_id`. Cached by (participant_id, text)."""
     key = f"tts:{participant_id}:{text}"
@@ -200,8 +209,8 @@ def synthesize_tts(text: str, participant_id: str, cache_dir: str) -> str:
 
     import pyttsx3
 
-    voice_id, rate = _voice_for(participant_id)
-    engine = pyttsx3.init()
+    voice_id, rate = _voice_for(participant_id, driverName)
+    engine = pyttsx3.init(driverName)
     engine.setProperty("voice", voice_id)
     engine.setProperty("rate", rate)
     engine.save_to_file(text, out_path)

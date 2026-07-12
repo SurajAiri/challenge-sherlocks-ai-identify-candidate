@@ -103,7 +103,9 @@ def _from_jsonable(d: dict) -> CompiledScenario:
     )
 
 
-def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
+def _compile_fresh(
+    raw: dict, scenario_dir: str, driverName: str | None = None
+) -> CompiledScenario:
     md = raw["metadata"]
     metadata = ScenarioMetadata(
         name=md["name"],
@@ -251,7 +253,7 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
                 final_path = resolve_media_path(path, scenario_dir)
                 duration = ffprobe_duration(final_path)
             else:
-                final_path = synthesize_tts(text, pid, media_cache_dir)
+                final_path = synthesize_tts(text, pid, media_cache_dir, driverName)
                 duration = ffprobe_duration(final_path)
 
             on_data = {"path": final_path}
@@ -307,7 +309,9 @@ def _compile_fresh(raw: dict, scenario_dir: str) -> CompiledScenario:
 
 
 def compile_scenario(
-    scenario_dir: str, index_filename: str = "index.yml"
+    scenario_dir: str,
+    index_filename: str = "index.yml",
+    driverName: str | None = None,
 ) -> CompiledScenario:
     index_path = os.path.join(scenario_dir, index_filename)
     if not os.path.isfile(index_path):
@@ -328,7 +332,7 @@ def compile_scenario(
     if errors:
         raise ValidationError(errors)
 
-    scenario = _compile_fresh(raw, scenario_dir)
+    scenario = _compile_fresh(raw, scenario_dir, driverName)
 
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     with open(cache_path, "w") as f:
