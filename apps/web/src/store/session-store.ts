@@ -103,7 +103,31 @@ interface SessionState {
   // is fine and expected for some scenarios.
   pendingAudioByTrackId: Record<string, string>;
 
-  audioPlaybackEnabled: boolean;
+  // Decoding chunks into a playable WAV blob happens unconditionally now
+  // (see audio_stream_off below) - there is no user-facing toggle for it
+  // any more. It's cheap (one Blob per utterance) and every other piece
+  // of audio UX (the per-segment Play button, live playback below) is
+  // useless without it, so gating it behind a switch only ever produced
+  // "why is there no audio" confusion for zero real benefit.
+
+  // Queue of blob URLs to auto-play, in speaking order, as a live
+  // "listen to the interview as it happens" experience - consumed by
+  // <LiveAudioPlayer/>, which plays queue[0] and calls dequeueLiveAudio()
+  // on end. Only ever appended to when livePlaybackEnabled is true at
+  // the moment a track finishes decoding (see audio_stream_off below).
+  liveAudioQueue: string[];
+
+  // User toggle for the queue above. Deliberately independent of whether
+  // audio gets decoded (that's unconditional) - this only controls
+  // whether decoded audio gets auto-played. The UI is responsible for
+  // forcing this back to false (and disabling the switch) whenever
+  // runSpeedMultiplier is unset or > 8: playback always takes the
+  // utterance's real, un-sped-up duration to finish, while the sim clock
+  // producing the *next* utterance is scaled by speed_multiplier, so at
+  // high speed the queue falls further behind with every turn. Below
+  // ~8x it's a bounded, tolerable lag; above it, it turns into an
+  // ever-growing backlog of stale audio - see session-controls.tsx.
+  livePlaybackEnabled: boolean;
 
   // Overrides the scenario's authored controls.speed_multiplier for the
   // *next* run started via handleStart -> startSimulatorRun. Only takes
@@ -124,7 +148,8 @@ interface SessionState {
   handleSimFrame: (frame: SimFrame) => void;
   handleEngineMessage: (raw: unknown) => void;
   setEngineStatus: (status: EngineStatus) => void;
-  toggleAudioPlayback: () => void;
+  setLivePlaybackEnabled: (enabled: boolean) => void;
+  dequeueLiveAudio: () => void;
   setRunSpeedMultiplier: (speed: number | null) => void;
 }
 
@@ -177,7 +202,8 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   rawLog: [],
   pendingAudioByTrackId: {},
 
-  audioPlaybackEnabled: false,
+  liveAudioQueue: [],
+  livePlaybackEnabled: false,
   runSpeedMultiplier: null,
 
   engineStatus: "idle",
@@ -210,6 +236,10 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       transcript: [],
       rawLog: [],
       pendingAudioByTrackId: {},
+      // Every URL that was ever in here also lives in prev.transcript or
+      // prev.pendingAudioByTrackId, both already revoked above - just
+      // drop the references, don't revoke a second time.
+      liveAudioQueue: [],
       engineLatest: null,
       engineHistory: [],
     });
@@ -222,7 +252,8 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 
   setEngineStatus: (status) => set({ engineStatus: status }),
 
-  toggleAudioPlayback: () => set((s) => ({ audioPlaybackEnabled: !s.audioPlaybackEnabled })),
+  setLivePlaybackEnabled: (enabled) => set({ livePlaybackEnabled: enabled }),
+  dequeueLiveAudio: () => set((s) => ({ liveAudioQueue: s.liveAudioQueue.slice(1) })),
   setRunSpeedMultiplier: (speed) => set({ runSpeedMultiplier: speed }),
 
   handleSimFrame: (frame) => {
@@ -299,6 +330,7 @@ function applyEvent(
     const participant = { ...base.participants[pid] };
     let transcript = state.transcript;
     let pendingAudio = state.pendingAudioByTrackId;
+    let liveQueue = state.liveAudioQueue;
 
     switch (event.type) {
       case "participant_join": {
@@ -376,7 +408,7 @@ function applyEvent(
         // Guard against a stray/duplicate off event that doesn't match
         // whatever window is actually open right now.
         const offTrackId = typeof data.track_id === "string" ? data.track_id : null;
-        if (track && (!offTrackId || track.trackId === offTrackId) && state.audioPlaybackEnabled && track.chunks.length) {
+        if (track && (!offTrackId || track.trackId === offTrackId) && track.chunks.length) {
           const pcm = concatBytes(track.chunks);
           const blob = pcmToWavBlob(pcm, {
             sampleRate: track.sampleRate,
@@ -384,6 +416,9 @@ function applyEvent(
             bitsPerSample: track.bitsPerSample,
           });
           const url = URL.createObjectURL(blob);
+          if (state.livePlaybackEnabled) {
+            liveQueue = [...liveQueue, url];
+          }
           // Join to the segment by its explicit audio_track_id (the id
           // the compiler stamped on both sides of this relationship -
           // see compiler.py), NOT by "whichever segment happens to be
@@ -410,10 +445,10 @@ function applyEvent(
             pendingAudio = { ...pendingAudio, [track.trackId]: url };
           }
         } else if (track) {
-          // playback disabled, nothing buffered, or a mismatched off -
-          // clear the pending flag on any segment already waiting on
-          // this exact track so its Play button doesn't stay "Buffering…"
-          // forever.
+          // Nothing buffered (e.g. zero chunks arrived) or a mismatched
+          // off - clear the pending flag on any segment already waiting
+          // on this exact track so its Play button doesn't stay
+          // "Buffering…" forever.
           transcript = state.transcript.map((seg) =>
             seg.audioTrackId === track.trackId && seg.audioPending ? { ...seg, audioPending: false } : seg
           );
@@ -440,7 +475,7 @@ function applyEvent(
           // Only "buffering" if there's an actual track to wait on -
           // a segment with no audio_track_id (no matching audio_stream_on
           // at all) has nothing coming, ever.
-          audioPending: state.audioPlaybackEnabled && !!trackId && !resolvedUrl,
+          audioPending: !!trackId && !resolvedUrl,
         };
         transcript = pushCapped(state.transcript, segment, MAX_TRANSCRIPT_ENTRIES);
         participant.segmentCount += 1;
@@ -453,6 +488,7 @@ function applyEvent(
       participantOrder: base.participantOrder,
       transcript,
       pendingAudioByTrackId: pendingAudio,
+      liveAudioQueue: liveQueue,
     };
   });
 }
@@ -481,7 +517,6 @@ function applyStreamFrame(
       participant.lastScreenshareFrameDataUrl = `data:image/jpeg;base64,${frame.data}`;
     } else if (
       frame.modality === "audio" &&
-      state.audioPlaybackEnabled &&
       participant.audioTrack &&
       participant.audioTrack.trackId === frame.track_id
     ) {

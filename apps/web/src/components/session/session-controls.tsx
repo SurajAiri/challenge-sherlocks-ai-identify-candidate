@@ -11,6 +11,13 @@ import { useSessionStore } from "@/store/session-store";
 
 const SPEED_OPTIONS = [1, 2, 4, 10, 20] as const;
 
+// Above this, the live playback queue (session-store.ts liveAudioQueue)
+// falls further behind every utterance instead of catching up, since
+// each queued clip still takes its own real, un-sped-up duration to
+// play while the sim clock producing the next one is scaled by
+// speed_multiplier. See LiveAudioPlayer's doc comment.
+const MAX_SPEED_FOR_LIVE_AUDIO = 8;
+
 export function SessionControls({
   scenarioId,
   onStart,
@@ -23,8 +30,8 @@ export function SessionControls({
   const runStatus = useSessionStore((s) => s.runStatus);
   const runStartedAt = useSessionStore((s) => s.runStartedAt);
   const runError = useSessionStore((s) => s.runError);
-  const audioPlaybackEnabled = useSessionStore((s) => s.audioPlaybackEnabled);
-  const toggleAudioPlayback = useSessionStore((s) => s.toggleAudioPlayback);
+  const livePlaybackEnabled = useSessionStore((s) => s.livePlaybackEnabled);
+  const setLivePlaybackEnabled = useSessionStore((s) => s.setLivePlaybackEnabled);
   const runSpeedMultiplier = useSessionStore((s) => s.runSpeedMultiplier);
   const setRunSpeedMultiplier = useSessionStore((s) => s.setRunSpeedMultiplier);
 
@@ -36,6 +43,17 @@ export function SessionControls({
   }, [runStatus, runStartedAt]);
 
   const running = runStatus === "connecting" || runStatus === "streaming";
+
+  // null ("scenario default") is deliberately treated as "unknown, so
+  // assume too fast" rather than "assume 1x" - index.yml's own
+  // speed_multiplier is never surfaced to this client (only an explicit
+  // override is), and this demo's own scenario defaults to 20x, so
+  // guessing 1x here would be actively wrong more often than not.
+  const liveAudioAllowed = runSpeedMultiplier !== null && runSpeedMultiplier <= MAX_SPEED_FOR_LIVE_AUDIO;
+
+  useEffect(() => {
+    if (!liveAudioAllowed && livePlaybackEnabled) setLivePlaybackEnabled(false);
+  }, [liveAudioAllowed, livePlaybackEnabled, setLivePlaybackEnabled]);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
@@ -84,10 +102,24 @@ export function SessionControls({
           </select>
         </label>
 
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          {audioPlaybackEnabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
-          <span className="hidden sm:inline">Decode audio for playback</span>
-          <Switch checked={audioPlaybackEnabled} onCheckedChange={toggleAudioPlayback} />
+        <label
+          className={cn(
+            "flex items-center gap-2 text-sm text-muted-foreground",
+            !liveAudioAllowed && "opacity-50"
+          )}
+          title={
+            liveAudioAllowed
+              ? "Auto-play each participant's audio as their utterance finishes decoding."
+              : "Disabled above 8x (or when using scenario default speed, which may exceed it): playback can't keep up with how fast utterances are produced, so it would just fall further and further behind."
+          }
+        >
+          {livePlaybackEnabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+          <span className="hidden sm:inline">Play audio</span>
+          <Switch
+            checked={livePlaybackEnabled}
+            disabled={!liveAudioAllowed}
+            onCheckedChange={setLivePlaybackEnabled}
+          />
         </label>
 
         {runStatus === "completed" && (

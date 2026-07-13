@@ -59,7 +59,7 @@ function AudioButton({ audioBlobUrl, pending }: { audioBlobUrl: string | null; p
         size="icon-xs"
         disabled
         className="mt-0.5 shrink-0"
-        title={pending ? "Buffering audio…" : "Enable audio playback to hear this segment"}
+        title={pending ? "Buffering audio…" : "No audio track for this segment"}
       >
         <Play className="size-3" />
       </Button>

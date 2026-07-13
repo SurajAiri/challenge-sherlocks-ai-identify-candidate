@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import { EnginePanel } from "@/components/session/engine-panel";
+import { LiveAudioPlayer } from "@/components/session/live-audio-player";
 import { MeetingGrid } from "@/components/session/meeting-grid";
 import { RawEventLog } from "@/components/session/raw-event-log";
 import { ScenarioInfoPanel } from "@/components/session/scenario-info-panel";
@@ -111,6 +112,7 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
 
   return (
     <div className="flex flex-1 flex-col">
+      <LiveAudioPlayer />
       <Topbar scenarioName={scenario.name} runStatus={runStatus} engineStatus={engineStatus} />
       <div className="mx-auto grid w-full max-w-7xl flex-1 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="flex flex-col gap-4">
