@@ -106,27 +106,30 @@ interface SessionState {
   // Decoding chunks into a playable WAV blob happens unconditionally now
   // (see audio_stream_off below) - there is no user-facing toggle for it
   // any more. It's cheap (one Blob per utterance) and every other piece
-  // of audio UX (the per-segment Play button, live playback below) is
-  // useless without it, so gating it behind a switch only ever produced
-  // "why is there no audio" confusion for zero real benefit.
+  // of audio UX (the per-segment Play button below) is useless without
+  // it, so gating it behind a switch only ever produced "why is there no
+  // audio" confusion for zero real benefit.
 
-  // Queue of blob URLs to auto-play, in speaking order, as a live
-  // "listen to the interview as it happens" experience - consumed by
-  // <LiveAudioPlayer/>, which plays queue[0] and calls dequeueLiveAudio()
-  // on end. Only ever appended to when livePlaybackEnabled is true at
-  // the moment a track finishes decoding (see audio_stream_off below).
-  liveAudioQueue: string[];
+  // Raw PCM chunks awaiting real-time playback, in arrival order.
+  // Appended to in applyStreamFrame the instant a chunk for a currently-
+  // open, live-playback-eligible track arrives - NOT batched per
+  // utterance. <LiveAudioPlayer/> drains this every time it changes and
+  // schedules each chunk back-to-back on a Web Audio graph, so audio
+  // starts within one chunk (~audio_chunk_ms) of the mic opening, not
+  // one whole utterance later. Only ever appended to when
+  // livePlaybackEnabled is true at arrival time.
+  liveAudioChunkQueue: LiveAudioChunk[];
 
   // User toggle for the queue above. Deliberately independent of whether
-  // audio gets decoded (that's unconditional) - this only controls
-  // whether decoded audio gets auto-played. The UI is responsible for
-  // forcing this back to false (and disabling the switch) whenever
-  // runSpeedMultiplier is unset or > 8: playback always takes the
-  // utterance's real, un-sped-up duration to finish, while the sim clock
-  // producing the *next* utterance is scaled by speed_multiplier, so at
-  // high speed the queue falls further behind with every turn. Below
-  // ~8x it's a bounded, tolerable lag; above it, it turns into an
-  // ever-growing backlog of stale audio - see session-controls.tsx.
+  // audio gets decoded for the manual Play button (that's unconditional)
+  // - this only controls whether decoded audio gets auto-played live.
+  // The UI forces this back to false (and disables the switch) whenever
+  // runSpeedMultiplier is unset or > 8. Reason: <LiveAudioPlayer/>
+  // compensates for sim speed by playing back at `playbackRate =
+  // runSpeedMultiplier` (see that file) so a sped-up run stays roughly
+  // in sync instead of endlessly falling behind - but playbackRate
+  // pushes pitch up 1:1 with it, and beyond ~8x the result is an
+  // unintelligible chipmunk squeal rather than "sped up speech."
   livePlaybackEnabled: boolean;
 
   // Overrides the scenario's authored controls.speed_multiplier for the
@@ -149,8 +152,15 @@ interface SessionState {
   handleEngineMessage: (raw: unknown) => void;
   setEngineStatus: (status: EngineStatus) => void;
   setLivePlaybackEnabled: (enabled: boolean) => void;
-  dequeueLiveAudio: () => void;
+  dequeueLiveAudioChunks: (count: number) => void;
   setRunSpeedMultiplier: (speed: number | null) => void;
+}
+
+export interface LiveAudioChunk {
+  trackId: string;
+  bytes: Uint8Array;
+  sampleRate: number;
+  channels: number;
 }
 
 function newParticipant(participantId: string, displayName: string): ParticipantState {
@@ -202,7 +212,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   rawLog: [],
   pendingAudioByTrackId: {},
 
-  liveAudioQueue: [],
+  liveAudioChunkQueue: [],
   livePlaybackEnabled: false,
   runSpeedMultiplier: null,
 
@@ -236,10 +246,10 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       transcript: [],
       rawLog: [],
       pendingAudioByTrackId: {},
-      // Every URL that was ever in here also lives in prev.transcript or
-      // prev.pendingAudioByTrackId, both already revoked above - just
-      // drop the references, don't revoke a second time.
-      liveAudioQueue: [],
+      // Chunks in here haven't been decoded into anything durable (no
+      // Blob/objectURL was ever created for them) - safe to just drop,
+      // nothing to revoke.
+      liveAudioChunkQueue: [],
       engineLatest: null,
       engineHistory: [],
     });
@@ -253,7 +263,8 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   setEngineStatus: (status) => set({ engineStatus: status }),
 
   setLivePlaybackEnabled: (enabled) => set({ livePlaybackEnabled: enabled }),
-  dequeueLiveAudio: () => set((s) => ({ liveAudioQueue: s.liveAudioQueue.slice(1) })),
+  dequeueLiveAudioChunks: (count) =>
+    set((s) => ({ liveAudioChunkQueue: s.liveAudioChunkQueue.slice(count) })),
   setRunSpeedMultiplier: (speed) => set({ runSpeedMultiplier: speed }),
 
   handleSimFrame: (frame) => {
@@ -330,7 +341,6 @@ function applyEvent(
     const participant = { ...base.participants[pid] };
     let transcript = state.transcript;
     let pendingAudio = state.pendingAudioByTrackId;
-    let liveQueue = state.liveAudioQueue;
 
     switch (event.type) {
       case "participant_join": {
@@ -416,9 +426,6 @@ function applyEvent(
             bitsPerSample: track.bitsPerSample,
           });
           const url = URL.createObjectURL(blob);
-          if (state.livePlaybackEnabled) {
-            liveQueue = [...liveQueue, url];
-          }
           // Join to the segment by its explicit audio_track_id (the id
           // the compiler stamped on both sides of this relationship -
           // see compiler.py), NOT by "whichever segment happens to be
@@ -488,7 +495,6 @@ function applyEvent(
       participantOrder: base.participantOrder,
       transcript,
       pendingAudioByTrackId: pendingAudio,
-      liveAudioQueue: liveQueue,
     };
   });
 }
@@ -510,6 +516,7 @@ function applyStreamFrame(
   set((state) => {
     const base = ensureParticipant(state, frame.participant_id);
     const participant = { ...base.participants[frame.participant_id] };
+    let liveQueue = state.liveAudioChunkQueue;
 
     if (frame.modality === "video") {
       participant.lastFrameDataUrl = `data:image/jpeg;base64,${frame.data}`;
@@ -524,15 +531,33 @@ function applyStreamFrame(
       // audio_stream_off (or belonging to a since-superseded window)
       // could get appended into whatever window happens to be open
       // now, corrupting an unrelated utterance's audio.
+      const bytes = base64ToBytes(frame.data);
       participant.audioTrack = {
         ...participant.audioTrack,
-        chunks: [...participant.audioTrack.chunks, base64ToBytes(frame.data)],
+        chunks: [...participant.audioTrack.chunks, bytes],
       };
+      // Live playback is per-chunk, not per-utterance: queuing this the
+      // instant it arrives (rather than waiting for audio_stream_off to
+      // batch the whole utterance into one blob) is what lets
+      // <LiveAudioPlayer/> start sound within ~one audio_chunk_ms of the
+      // mic opening instead of a full utterance-length later.
+      if (state.livePlaybackEnabled) {
+        liveQueue = [
+          ...liveQueue,
+          {
+            trackId: frame.track_id,
+            bytes,
+            sampleRate: participant.audioTrack.sampleRate,
+            channels: participant.audioTrack.channels,
+          },
+        ];
+      }
     }
 
     return {
       participants: { ...base.participants, [frame.participant_id]: participant },
       participantOrder: base.participantOrder,
+      liveAudioChunkQueue: liveQueue,
     };
   });
 }

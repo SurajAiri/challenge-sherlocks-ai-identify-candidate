@@ -11,7 +11,7 @@ import { useSessionStore } from "@/store/session-store";
 
 const SPEED_OPTIONS = [1, 2, 4, 10, 20] as const;
 
-// Above this, the live playback queue (session-store.ts liveAudioQueue)
+// Above this, the live playback path (session-store.ts liveAudioChunkQueue)
 // falls further behind every utterance instead of catching up, since
 // each queued clip still takes its own real, un-sped-up duration to
 // play while the sim clock producing the next one is scaled by
