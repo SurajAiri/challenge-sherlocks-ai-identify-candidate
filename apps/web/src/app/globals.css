@@ -117,6 +117,19 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Sherlock signal accent - a forensic teal/cyan, distinct from the
+   primary neutral scale. Used for "engine is watching" affordances:
+   connection dots, the confidence meter, active toggles. Kept to one
+   accent so it reads as a signal, not decoration. */
+:root {
+  --accent-signal: oklch(0.73 0.13 195);
+  --accent-signal-foreground: oklch(0.15 0.02 195);
+}
+.dark {
+  --accent-signal: oklch(0.78 0.13 195);
+  --accent-signal-foreground: oklch(0.15 0.02 195);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -127,4 +140,45 @@
   html {
     @apply font-sans;
   }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 8px;
+  }
+}
+
+@keyframes speaking-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent-signal), transparent 55%);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in oklch, var(--accent-signal), transparent 85%);
+  }
+}
+.animate-speaking-pulse {
+  animation: speaking-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes live-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.animate-live-dot {
+  animation: live-dot 1.6s ease-in-out infinite;
 }

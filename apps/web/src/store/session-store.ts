@@ -1,0 +1,464 @@
+"use client";
+
+import { create } from "zustand";
+import { base64ToBytes, concatBytes, pcmToWavBlob } from "@/lib/audio";
+import { makeId } from "@/lib/id";
+import type { EngineMessage, SessionContext, SimEvent, SimFrame, StreamFrame } from "@/lib/types";
+import type { EngineStatus } from "@/lib/engine-client";
+
+const MAX_LOG_ENTRIES = 500;
+const MAX_TRANSCRIPT_ENTRIES = 500;
+
+export type RunStatus = "idle" | "connecting" | "streaming" | "completed" | "error";
+
+export interface AudioTrackBuffer {
+  active: boolean;
+  sampleRate: number;
+  channels: number;
+  bitsPerSample: number;
+  chunks: Uint8Array[];
+  startedAt: number;
+}
+
+export interface ParticipantState {
+  participantId: string;
+  displayName: string;
+  joined: boolean;
+  joinedAt: number | null;
+  leftAt: number | null;
+  nameHistory: { name: string; t: number }[];
+  webcamOn: boolean;
+  webcamMeta: { width?: number; height?: number; fps?: number } | null;
+  lastFrameDataUrl: string | null;
+  screenshareOn: boolean;
+  screenshareMeta: { width?: number; height?: number; fps?: number } | null;
+  lastScreenshareFrameDataUrl: string | null;
+  speaking: boolean;
+  micOn: boolean;
+  audioTrack: AudioTrackBuffer | null;
+  speakingSeconds: number;
+  segmentCount: number;
+}
+
+export interface TranscriptSegment {
+  id: string;
+  t: number;
+  participantId: string | null;
+  displayName: string;
+  text: string;
+  audioBlobUrl: string | null;
+  audioPending: boolean;
+}
+
+export interface RawLogEntry {
+  id: string;
+  t: number;
+  kind: "context" | "event" | "stream" | "error";
+  summary: string;
+  detail?: unknown;
+}
+
+export interface EnginePrediction {
+  id: string;
+  t: number;
+  receivedAt: number;
+  candidateParticipantId: string | null;
+  confidence: number | null;
+  reasoning: string | null;
+  raw: unknown;
+}
+
+interface SessionState {
+  scenarioLibraryId: string | null;
+  scenarioPath: string | null;
+  scenarioName: string | null;
+
+  runStatus: RunStatus;
+  runError: string | null;
+  runStartedAt: number | null;
+  runAbort: AbortController | null;
+
+  context: SessionContext | null;
+  participants: Record<string, ParticipantState>;
+  participantOrder: string[];
+
+  transcript: TranscriptSegment[];
+  rawLog: RawLogEntry[];
+
+  audioPlaybackEnabled: boolean;
+
+  engineStatus: EngineStatus;
+  engineLatest: EnginePrediction | null;
+  engineHistory: EnginePrediction[];
+
+  // actions
+  startSession: (scenario: { libraryId: string; path: string; name: string }) => void;
+  setRunStatus: (status: RunStatus, error?: string | null) => void;
+  setRunAbort: (controller: AbortController | null) => void;
+  handleSimFrame: (frame: SimFrame) => void;
+  handleEngineMessage: (raw: unknown) => void;
+  setEngineStatus: (status: EngineStatus) => void;
+  toggleAudioPlayback: () => void;
+}
+
+function newParticipant(participantId: string, displayName: string): ParticipantState {
+  return {
+    participantId,
+    displayName,
+    joined: false,
+    joinedAt: null,
+    leftAt: null,
+    nameHistory: [{ name: displayName, t: 0 }],
+    webcamOn: false,
+    webcamMeta: null,
+    lastFrameDataUrl: null,
+    screenshareOn: false,
+    screenshareMeta: null,
+    lastScreenshareFrameDataUrl: null,
+    speaking: false,
+    micOn: false,
+    audioTrack: null,
+    speakingSeconds: 0,
+    segmentCount: 0,
+  };
+}
+
+function pushCapped<T>(list: T[], item: T, max: number): T[] {
+  const next = [...list, item];
+  return next.length > max ? next.slice(next.length - max) : next;
+}
+
+function approxBytes(base64Length: number): number {
+  return Math.floor((base64Length * 3) / 4);
+}
+
+export const useSessionStore = create<SessionState>()((set, get) => ({
+  scenarioLibraryId: null,
+  scenarioPath: null,
+  scenarioName: null,
+
+  runStatus: "idle",
+  runError: null,
+  runStartedAt: null,
+  runAbort: null,
+
+  context: null,
+  participants: {},
+  participantOrder: [],
+
+  transcript: [],
+  rawLog: [],
+
+  audioPlaybackEnabled: false,
+
+  engineStatus: "idle",
+  engineLatest: null,
+  engineHistory: [],
+
+  startSession: ({ libraryId, path, name }) => {
+    get().runAbort?.abort();
+    set({
+      scenarioLibraryId: libraryId,
+      scenarioPath: path,
+      scenarioName: name,
+      runStatus: "idle",
+      runError: null,
+      runStartedAt: null,
+      runAbort: null,
+      context: null,
+      participants: {},
+      participantOrder: [],
+      transcript: [],
+      rawLog: [],
+      engineLatest: null,
+      engineHistory: [],
+    });
+  },
+
+  setRunStatus: (status, error = null) =>
+    set({ runStatus: status, runError: error, ...(status === "streaming" ? { runStartedAt: Date.now() } : {}) }),
+
+  setRunAbort: (controller) => set({ runAbort: controller }),
+
+  setEngineStatus: (status) => set({ engineStatus: status }),
+
+  toggleAudioPlayback: () => set((s) => ({ audioPlaybackEnabled: !s.audioPlaybackEnabled })),
+
+  handleSimFrame: (frame) => {
+    if (frame.kind === "context") {
+      set({ context: frame.payload });
+      return;
+    }
+    if (frame.kind === "error") {
+      const entry: RawLogEntry = {
+        id: makeId("log"),
+        t: get().rawLog.at(-1)?.t ?? 0,
+        kind: "error",
+        summary: typeof frame.payload === "string" ? frame.payload : JSON.stringify(frame.payload),
+        detail: frame.payload,
+      };
+      set((s) => ({ rawLog: pushCapped(s.rawLog, entry, MAX_LOG_ENTRIES) }));
+      return;
+    }
+    if (frame.kind === "event") {
+      applyEvent(frame.payload, set, get);
+      return;
+    }
+    if (frame.kind === "stream") {
+      applyStreamFrame(frame.payload, set, get);
+      return;
+    }
+  },
+
+  handleEngineMessage: (raw) => {
+    const prediction = parseEnginePrediction(raw);
+    set((s) => ({
+      engineLatest: prediction,
+      engineHistory: pushCapped(s.engineHistory, prediction, 200),
+    }));
+  },
+}));
+
+function ensureParticipant(
+  state: SessionState,
+  participantId: string,
+  fallbackName?: string
+): { participants: Record<string, ParticipantState>; participantOrder: string[] } {
+  if (state.participants[participantId]) {
+    return { participants: state.participants, participantOrder: state.participantOrder };
+  }
+  const participant = newParticipant(participantId, fallbackName ?? participantId);
+  return {
+    participants: { ...state.participants, [participantId]: participant },
+    participantOrder: [...state.participantOrder, participantId],
+  };
+}
+
+function applyEvent(
+  event: SimEvent,
+  set: (fn: (s: SessionState) => Partial<SessionState>) => void,
+  get: () => SessionState
+) {
+  const pid = event.participant_id;
+  const data = event.data ?? {};
+
+  const logEntry: RawLogEntry = {
+    id: makeId("log"),
+    t: event.t,
+    kind: "event",
+    summary: describeEvent(event, get()),
+    detail: event,
+  };
+  set((s) => ({ rawLog: pushCapped(s.rawLog, logEntry, MAX_LOG_ENTRIES) }));
+
+  if (!pid) return; // silence/other clock-only markers never reach here, but be safe
+
+  set((state) => {
+    const base = ensureParticipant(state, pid, typeof data.display_name === "string" ? data.display_name : undefined);
+    const participant = { ...base.participants[pid] };
+    let transcript = state.transcript;
+
+    switch (event.type) {
+      case "participant_join": {
+        participant.joined = true;
+        participant.joinedAt = event.t;
+        participant.leftAt = null;
+        if (typeof data.display_name === "string" && data.display_name !== participant.displayName) {
+          participant.displayName = data.display_name;
+          participant.nameHistory = [...participant.nameHistory, { name: data.display_name, t: event.t }];
+        }
+        break;
+      }
+      case "participant_leave": {
+        participant.joined = false;
+        participant.leftAt = event.t;
+        break;
+      }
+      case "participant_update": {
+        if (typeof data.display_name === "string" && data.display_name !== participant.displayName) {
+          participant.displayName = data.display_name;
+          participant.nameHistory = [...participant.nameHistory, { name: data.display_name, t: event.t }];
+        }
+        break;
+      }
+      case "webcam_on": {
+        participant.webcamOn = true;
+        participant.webcamMeta = {
+          width: numOrUndef(data.width),
+          height: numOrUndef(data.height),
+          fps: numOrUndef(data.fps),
+        };
+        break;
+      }
+      case "webcam_off": {
+        participant.webcamOn = false;
+        break;
+      }
+      case "screenshare_start": {
+        participant.screenshareOn = true;
+        participant.screenshareMeta = {
+          width: numOrUndef(data.width),
+          height: numOrUndef(data.height),
+          fps: numOrUndef(data.fps),
+        };
+        break;
+      }
+      case "screenshare_end": {
+        participant.screenshareOn = false;
+        break;
+      }
+      case "speaking_start": {
+        participant.speaking = true;
+        break;
+      }
+      case "speaking_end": {
+        participant.speaking = false;
+        break;
+      }
+      case "audio_stream_on": {
+        participant.micOn = true;
+        participant.audioTrack = {
+          active: true,
+          sampleRate: numOrUndef(data.sample_rate) ?? 16000,
+          channels: numOrUndef(data.channels) ?? 1,
+          bitsPerSample: 16,
+          chunks: [],
+          startedAt: event.t,
+        };
+        break;
+      }
+      case "audio_stream_off": {
+        participant.micOn = false;
+        const track = participant.audioTrack;
+        if (track && state.audioPlaybackEnabled && track.chunks.length) {
+          const pcm = concatBytes(track.chunks);
+          const blob = pcmToWavBlob(pcm, {
+            sampleRate: track.sampleRate,
+            channels: track.channels,
+            bitsPerSample: track.bitsPerSample,
+          });
+          const url = URL.createObjectURL(blob);
+          // Attach to the most recent segment from this participant that's
+          // still waiting on audio (transcript_segment fires while the
+          // track is still open, so it always precedes this).
+          const idx = [...state.transcript]
+            .reverse()
+            .findIndex((seg) => seg.participantId === pid && seg.audioPending);
+          if (idx !== -1) {
+            const realIdx = state.transcript.length - 1 - idx;
+            transcript = state.transcript.map((seg, i) =>
+              i === realIdx ? { ...seg, audioBlobUrl: url, audioPending: false } : seg
+            );
+          }
+        } else if (track) {
+          // playback disabled or nothing buffered - just clear the pending flag(s)
+          transcript = state.transcript.map((seg) =>
+            seg.participantId === pid && seg.audioPending ? { ...seg, audioPending: false } : seg
+          );
+        }
+        participant.audioTrack = null;
+        break;
+      }
+      case "transcript_segment": {
+        const segment: TranscriptSegment = {
+          id: makeId("seg"),
+          t: event.t,
+          participantId: pid,
+          displayName: participant.displayName,
+          text: typeof data.text === "string" ? data.text : "",
+          audioBlobUrl: null,
+          audioPending: state.audioPlaybackEnabled,
+        };
+        transcript = pushCapped(state.transcript, segment, MAX_TRANSCRIPT_ENTRIES);
+        participant.segmentCount += 1;
+        break;
+      }
+    }
+
+    return {
+      participants: { ...base.participants, [pid]: participant },
+      participantOrder: base.participantOrder,
+      transcript,
+    };
+  });
+}
+
+function applyStreamFrame(
+  frame: StreamFrame,
+  set: (fn: (s: SessionState) => Partial<SessionState>) => void,
+  get: () => SessionState
+) {
+  const state = get();
+  const logEntry: RawLogEntry = {
+    id: makeId("log"),
+    t: frame.t,
+    kind: "stream",
+    summary: `stream:${frame.modality} [${state.participants[frame.participant_id]?.displayName ?? frame.participant_id}] seq=${frame.seq} (~${approxBytes(frame.data.length)}B)`,
+  };
+  set((s) => ({ rawLog: pushCapped(s.rawLog, logEntry, MAX_LOG_ENTRIES) }));
+
+  set((state) => {
+    const base = ensureParticipant(state, frame.participant_id);
+    const participant = { ...base.participants[frame.participant_id] };
+
+    if (frame.modality === "video") {
+      participant.lastFrameDataUrl = `data:image/jpeg;base64,${frame.data}`;
+    } else if (frame.modality === "screenshare") {
+      participant.lastScreenshareFrameDataUrl = `data:image/jpeg;base64,${frame.data}`;
+    } else if (frame.modality === "audio" && state.audioPlaybackEnabled && participant.audioTrack) {
+      participant.audioTrack = {
+        ...participant.audioTrack,
+        chunks: [...participant.audioTrack.chunks, base64ToBytes(frame.data)],
+      };
+    }
+
+    return {
+      participants: { ...base.participants, [frame.participant_id]: participant },
+      participantOrder: base.participantOrder,
+    };
+  });
+}
+
+function numOrUndef(v: unknown): number | undefined {
+  return typeof v === "number" ? v : undefined;
+}
+
+function describeEvent(event: SimEvent, state: SessionState): string {
+  const name = event.participant_id ? state.participants[event.participant_id]?.displayName ?? event.participant_id : "";
+  const extra = Object.keys(event.data ?? {}).length ? ` ${JSON.stringify(event.data)}` : "";
+  return `${event.type}${name ? ` [${name}]` : ""}${extra}`;
+}
+
+function parseEnginePrediction(raw: unknown): EnginePrediction {
+  const obj = (raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}) as Record<string, unknown>;
+
+  // Defensive/best-effort field lookup: the Engine's real message shape
+  // isn't confirmed yet, so accept a handful of plausible key names
+  // rather than assuming one exact contract.
+  const candidateParticipantId =
+    firstString(obj.candidate_participant_id, obj.candidateParticipantId, obj.participant_id, obj.candidate_id) ??
+    null;
+  const confidence = firstNumber(obj.confidence, obj.score);
+  const reasoning = firstString(obj.reasoning, obj.explanation, obj.rationale) ?? null;
+  const t = firstNumber(obj.t, obj.timestamp) ?? 0;
+
+  return {
+    id: makeId("pred"),
+    t,
+    receivedAt: Date.now(),
+    candidateParticipantId,
+    confidence: confidence ?? null,
+    reasoning,
+    raw,
+  };
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const v of values) if (typeof v === "string") return v;
+  return undefined;
+}
+
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const v of values) if (typeof v === "number") return v;
+  return undefined;
+}
