@@ -14,8 +14,6 @@ metadata:
 controls:
   speed_multiplier: 20.0
   generate_audio: true
-  video_fps: 5.0        # default - shown explicitly here as a reference example
-  audio_chunk_ms: 200   # default - shown explicitly here as a reference example
 
 context:
   candidate_name: "Suraj Thapa"
@@ -45,35 +43,41 @@ participants:
 timeline:
   - type: participant_join
     participant_id: p_alex
-    data: {display_name: "Alex Rivera"}
+    data: { display_name: "Alex Rivera" }
   - type: participant_join
     participant_id: p_jordan
-    data: {display_name: "Jordan Lee"}
+    data: { display_name: "Jordan Lee" }
   - type: participant_join
     participant_id: p_mbp
-    data: {display_name: "MacBook Pro"}
+    data: { display_name: "MacBook Pro" }
   - type: participant_join
     participant_id: p_obs
-    data: {display_name: "iPhone"}
+    data: { display_name: "iPhone" }
 
   - type: webcam_on
     participant_id: p_alex
-    data: {path: "media/interviewer_webcam.png"}
+    data: { path: "media/interviewer_webcam.png" }
   - type: webcam_on
     participant_id: p_mbp
-    data: {path: "media/candidate_webcam.png"}
+    data: { path: "media/candidate_webcam.png" }
 
   - type: silence
-    data: {duration: 2}
+    data: { duration: 2 }
 
   - type: speaking_start
     participant_id: p_alex
   - type: audio_stream_on
     participant_id: p_alex
-    data: {text: "Hi, thanks for joining. Can you start by walking us through your background?"}
+    data:
+      {
+        text: "Hi, thanks for joining. Can you start by walking us through your background?",
+      }
   - type: transcript_segment
     participant_id: p_alex
-    data: {text: "Hi, thanks for joining. Can you start by walking us through your background?"}
+    data:
+      {
+        text: "Hi, thanks for joining. Can you start by walking us through your background?",
+      }
   - type: speaking_end
     participant_id: p_alex
 
@@ -81,38 +85,57 @@ timeline:
     participant_id: p_mbp
   - type: audio_stream_on
     participant_id: p_mbp
-    data: {text: "Sure. I've spent the last four years building backend systems, mostly in Python and Go, with a focus on distributed systems and reliability work."}
+    data:
+      {
+        text: "Sure. I've spent the last four years building backend systems, mostly in Python and Go, with a focus on distributed systems and reliability work.",
+      }
   - type: transcript_segment
     participant_id: p_mbp
-    data: {text: "Sure. I've spent the last four years building backend systems, mostly in Python and Go, with a focus on distributed systems and reliability work."}
+    data:
+      {
+        text: "Sure. I've spent the last four years building backend systems, mostly in Python and Go, with a focus on distributed systems and reliability work.",
+      }
   - type: speaking_end
     participant_id: p_mbp
 
   - type: silence
-    data: {duration: 1}
+    data: { duration: 1 }
 
   - type: speaking_start
     participant_id: p_jordan
   - type: audio_stream_on
     participant_id: p_jordan
-    data: {text: "Great. Let's move into a coding problem. Can you share your screen and walk us through your approach?"}
+    data:
+      {
+        text: "Great. Let's move into a coding problem. Can you share your screen and walk us through your approach?",
+      }
   - type: transcript_segment
     participant_id: p_jordan
-    data: {text: "Great. Let's move into a coding problem. Can you share your screen and walk us through your approach?"}
+    data:
+      {
+        text: "Great. Let's move into a coding problem. Can you share your screen and walk us through your approach?",
+      }
   - type: speaking_end
     participant_id: p_jordan
 
   - type: screenshare_start
     participant_id: p_mbp
+    data: { path: "media/candidate_webcam.png" }
 
   - type: speaking_start
     participant_id: p_mbp
   - type: audio_stream_on
     participant_id: p_mbp
-    data: {text: "I'll start with a brute force approach, then optimize. First, let's define the problem constraints."}
+    data:
+      {
+        text: "I'll start with a brute force approach, then optimize. First, let's define the problem constraints.",
+      }
   - type: transcript_segment
     participant_id: p_mbp
-    data: {text: "I'll start with a brute force approach, then optimize. First, let's define the problem constraints."}
+    data:
+      {
+        text: "I'll start with a brute force approach, then optimize. First, let's define the problem constraints.",
+      }
   - type: speaking_end
     participant_id: p_mbp
 
@@ -120,16 +143,22 @@ timeline:
     participant_id: p_mbp
 
   - type: silence
-    data: {duration: 1}
+    data: { duration: 1 }
 
   - type: speaking_start
     participant_id: p_alex
   - type: audio_stream_on
     participant_id: p_alex
-    data: {text: "That's solid. One last question - do you have anything you'd like to ask us before we wrap up?"}
+    data:
+      {
+        text: "That's solid. One last question - do you have anything you'd like to ask us before we wrap up?",
+      }
   - type: transcript_segment
     participant_id: p_alex
-    data: {text: "That's solid. One last question - do you have anything you'd like to ask us before we wrap up?"}
+    data:
+      {
+        text: "That's solid. One last question - do you have anything you'd like to ask us before we wrap up?",
+      }
   - type: speaking_end
     participant_id: p_alex
 
@@ -137,16 +166,22 @@ timeline:
     participant_id: p_mbp
   - type: audio_stream_on
     participant_id: p_mbp
-    data: {text: "Not right now, thank you. Oh, and sorry, I'm Suraj by the way, I don't think I properly introduced myself. I'll send my portfolio over after this."}
+    data:
+      {
+        text: "Not right now, thank you. Oh, and sorry, I'm Suraj by the way, I don't think I properly introduced myself. I'll send my portfolio over after this.",
+      }
   - type: transcript_segment
     participant_id: p_mbp
-    data: {text: "Not right now, thank you. Oh, and sorry, I'm Suraj by the way, I don't think I properly introduced myself. I'll send my portfolio over after this."}
+    data:
+      {
+        text: "Not right now, thank you. Oh, and sorry, I'm Suraj by the way, I don't think I properly introduced myself. I'll send my portfolio over after this.",
+      }
   - type: speaking_end
     participant_id: p_mbp
 
   - type: participant_update
     participant_id: p_mbp
-    data: {display_name: "Suraj Thapa"}
+    data: { display_name: "Suraj Thapa" }
 
   - type: webcam_off
     participant_id: p_mbp
