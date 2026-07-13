@@ -40,6 +40,22 @@ chunks. If you're building the Engine side against this simulator,
 don't read `data.path` off a `webcam_on`/`audio_stream_on` event —
 there isn't one; consume the `stream` messages instead.
 
+One correlation detail that's easy to miss if you only skim the wire
+format: every `stream` message carries `seq`, but `seq` resets to `0`
+at the start of *every* on..off window — it is **not** a session-wide
+counter. If a participant speaks twice, their second `audio_stream_on`
+window's chunks start again at `seq=0`, so `(participant_id, modality,
+seq)` is not a safe key once you go past "append the next chunk into
+whichever window is currently open" (e.g. if you persist chunks, or
+process out of arrival order). Use `track_id` instead — it's on every
+`stream` message and on the matching `webcam_on`/`audio_stream_on`/
+`screenshare_start` event (and echoed on the matching off event) — for
+anything that needs a stable, session-wide identity for a window.
+`transcript_segment` events also carry `data.audio_track_id`, pointing
+at whichever audio window was open for that participant when the
+segment was authored, so you don't have to infer the audio↔transcript
+link from timestamp coincidence.
+
 ## The basic shape
 
 A scenario is a folder:

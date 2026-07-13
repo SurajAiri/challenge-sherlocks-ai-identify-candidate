@@ -61,6 +61,7 @@ async def emit(scenario: CompiledScenario) -> AsyncIterator[tuple[str, object]]:
                 t=entry.t,
                 participant_id=entry.participant_id,
                 modality=entry.modality,
+                track_id=entry.track_id,
                 seq=entry.seq,
                 data=base64.b64encode(_read_chunk_bytes(entry)).decode("ascii"),
             )
@@ -88,5 +89,5 @@ def describe_stream_frame(frame: StreamFrame, scenario: CompiledScenario) -> str
     nbytes = len(frame.data) * 3 // 4  # approx decoded size from base64 length
     return (
         f"t={frame.t:>6.1f}s  stream:{frame.modality:<11} [{pname}] "
-        f"seq={frame.seq} (~{nbytes}B)"
+        f"track={frame.track_id} seq={frame.seq} (~{nbytes}B)"
     )

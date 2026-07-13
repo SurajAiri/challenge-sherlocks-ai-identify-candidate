@@ -24,6 +24,7 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
 
   const runStatus = useSessionStore((s) => s.runStatus);
   const runAbort = useSessionStore((s) => s.runAbort);
+  const runSpeedMultiplier = useSessionStore((s) => s.runSpeedMultiplier);
   const engineStatus = useSessionStore((s) => s.engineStatus);
   const startSession = useSessionStore((s) => s.startSession);
   const setRunStatus = useSessionStore((s) => s.setRunStatus);
@@ -75,17 +76,21 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
 
   function handleStart() {
     setRunStatus("connecting");
-    const controller = startSimulatorRun(scenario!.path, {
-      onOpen: () => setRunStatus("streaming"),
-      onFrame: (frame) => {
-        handleSimFrame(frame);
-        // Forward every frame to the Engine, same shape it arrived in.
-        // Silently a no-op until the Engine exists / is connected.
-        engineSocketRef.current?.send(frame);
+    const controller = startSimulatorRun(
+      scenario!.path,
+      {
+        onOpen: () => setRunStatus("streaming"),
+        onFrame: (frame) => {
+          handleSimFrame(frame);
+          // Forward every frame to the Engine, same shape it arrived in.
+          // Silently a no-op until the Engine exists / is connected.
+          engineSocketRef.current?.send(frame);
+        },
+        onDone: () => setRunStatus("completed"),
+        onError: (message) => setRunStatus("error", message),
       },
-      onDone: () => setRunStatus("completed"),
-      onError: (message) => setRunStatus("error", message),
-    });
+      runSpeedMultiplier
+    );
     setRunAbort(controller);
   }
 

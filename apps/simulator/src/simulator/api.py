@@ -53,6 +53,13 @@ app = FastAPI(title="Sherlocks Simulator API", version="0.1.0")
 
 class ScenarioRequest(BaseModel):
     scenario_dir: str
+    # Optional per-request override of index.yml's controls.speed_multiplier.
+    # Only meaningful for /run - /validate and /evaluation ignore it.
+    # Deliberately NOT baked into compile_scenario()/its cache key: it's a
+    # playback knob, not part of the scenario's identity (same reasoning
+    # as ScenarioControls.speed_multiplier itself - see models.py), so
+    # overriding it must never bust or fork the compiled-scenario cache.
+    speed_multiplier: float | None = None
 
 
 def _compile_or_4xx(scenario_dir: str):
@@ -121,6 +128,18 @@ def _sse(kind: str, payload) -> str:
 @app.post("/run")
 def run_scenario(req: ScenarioRequest):
     scenario = _compile_or_4xx(req.scenario_dir)  # fail fast, before streaming starts
+
+    if req.speed_multiplier is not None:
+        if req.speed_multiplier <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail={"valid": False, "errors": ["speed_multiplier must be > 0"]},
+            )
+        # Mutates the in-memory CompiledScenario only - the object just
+        # came out of compile_scenario() for this request and is never
+        # written back to the .cache/compiled.json cache, so this can't
+        # leak into a different request that didn't ask for an override.
+        scenario.controls.speed_multiplier = req.speed_multiplier
 
     async def stream():
         async for kind, payload in emit(scenario):

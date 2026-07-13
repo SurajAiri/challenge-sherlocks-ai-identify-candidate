@@ -87,6 +87,14 @@ interface SessionState {
 
   audioPlaybackEnabled: boolean;
 
+  // Overrides the scenario's authored controls.speed_multiplier for the
+  // *next* run started via handleStart -> startSimulatorRun. Only takes
+  // effect at run-start time (passed once in the /run request body) -
+  // changing it mid-stream does nothing to an already-running session,
+  // since the simulator's own clock is what's actually being sped up,
+  // not anything client-side. null = use whatever index.yml authored.
+  runSpeedMultiplier: number | null;
+
   engineStatus: EngineStatus;
   engineLatest: EnginePrediction | null;
   engineHistory: EnginePrediction[];
@@ -99,6 +107,7 @@ interface SessionState {
   handleEngineMessage: (raw: unknown) => void;
   setEngineStatus: (status: EngineStatus) => void;
   toggleAudioPlayback: () => void;
+  setRunSpeedMultiplier: (speed: number | null) => void;
 }
 
 function newParticipant(participantId: string, displayName: string): ParticipantState {
@@ -150,6 +159,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   rawLog: [],
 
   audioPlaybackEnabled: false,
+  runSpeedMultiplier: null,
 
   engineStatus: "idle",
   engineLatest: null,
@@ -183,6 +193,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   setEngineStatus: (status) => set({ engineStatus: status }),
 
   toggleAudioPlayback: () => set((s) => ({ audioPlaybackEnabled: !s.audioPlaybackEnabled })),
+  setRunSpeedMultiplier: (speed) => set({ runSpeedMultiplier: speed }),
 
   handleSimFrame: (frame) => {
     if (frame.kind === "context") {

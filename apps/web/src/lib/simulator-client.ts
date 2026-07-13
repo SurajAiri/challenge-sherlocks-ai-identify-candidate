@@ -23,7 +23,14 @@ export interface SimulatorRunHandlers {
 
 export function startSimulatorRun(
   scenarioDir: string,
-  handlers: SimulatorRunHandlers
+  handlers: SimulatorRunHandlers,
+  // Overrides the scenario's authored controls.speed_multiplier for this
+  // run only (see apps/simulator/src/simulator/api.py ScenarioRequest).
+  // undefined/null = use whatever index.yml authored, same as before
+  // this param existed. This only affects the simulator's own pacing of
+  // the SSE stream at request time - it is NOT a live/mid-stream knob
+  // and has nothing to do with replaying an already-completed run.
+  speedMultiplier?: number | null
 ): AbortController {
   const controller = new AbortController();
 
@@ -32,7 +39,10 @@ export function startSimulatorRun(
       const res = await fetch("/api/simulator/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scenario_dir: scenarioDir }),
+        body: JSON.stringify({
+          scenario_dir: scenarioDir,
+          ...(speedMultiplier ? { speed_multiplier: speedMultiplier } : {}),
+        }),
         signal: controller.signal,
       });
 

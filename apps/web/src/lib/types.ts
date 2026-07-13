@@ -51,6 +51,17 @@ export const streamFrameSchema = z.object({
   t: z.number(),
   participant_id: z.string(),
   modality: z.enum(MODALITIES),
+  // Globally-unique id for the on..off window this chunk belongs to.
+  // `seq` below is only 0-based *within* that window and resets to 0
+  // every time the same participant_id+modality opens a new window
+  // (e.g. speaking a second time) - so (participant_id, modality, seq)
+  // is NOT a safe key on its own once you're doing anything other than
+  // "append into whichever window is currently open." Use track_id for
+  // storage/dedup/replay. Also present on the matching webcam_on/
+  // audio_stream_on/screenshare_start SimEvent's `data.track_id` (and
+  // echoed on the matching off event), so a chunk can be tied back to
+  // its lifecycle event too.
+  track_id: z.string(),
   seq: z.number(),
   data: z.string(), // base64-encoded chunk bytes
 });

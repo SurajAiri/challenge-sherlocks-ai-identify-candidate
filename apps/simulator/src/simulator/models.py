@@ -68,7 +68,10 @@ class StreamChunk:
     t: float
     participant_id: str
     modality: str  # "audio" | "video" | "screenshare"
-    seq: int  # 0-based, per participant+modality+window
+    track_id: str  # unique per on..off window - see track_id note below
+    seq: int  # 0-based, per participant+modality+window (NOT globally
+              # unique - only track_id is; seq alone is only safe as a
+              # dedup/ordering key while a single window is open)
     source_path: str
     byte_offset: int = 0
     byte_length: Optional[int] = None  # None = read the whole file
@@ -79,10 +82,24 @@ class StreamChunk:
 class StreamFrame:
     """Wire-ready form of a StreamChunk: bytes already read off disk,
     base64-encoded so it's JSON-safe. This - never StreamChunk - is
-    what actually gets sent as a `"stream"` message."""
+    what actually gets sent as a `"stream"` message.
+
+    `track_id` is the globally-unique identifier for the on..off window
+    this frame belongs to (same value carried in the matching
+    webcam_on/audio_stream_on/screenshare_start Event's data, and
+    echoed on the matching off event). `seq` alone is NOT a safe key
+    across a whole session: it resets to 0 for every new window of the
+    same participant_id+modality (e.g. a participant speaking a second
+    time), so `(participant_id, modality, seq)` can collide across two
+    different utterances. Any consumer that stores frames (rather than
+    just append-buffering them into a currently-open window while
+    streaming live) MUST key on (track_id, seq) or track_id + t, never
+    on (participant_id, modality, seq) alone.
+    """
     t: float
     participant_id: str
     modality: str
+    track_id: str
     seq: int
     data: str  # base64-encoded chunk bytes
 
