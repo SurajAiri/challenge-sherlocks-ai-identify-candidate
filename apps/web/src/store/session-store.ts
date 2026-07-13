@@ -13,6 +13,7 @@ export type RunStatus = "idle" | "connecting" | "streaming" | "completed" | "err
 
 export interface AudioTrackBuffer {
   active: boolean;
+  trackId: string;
   sampleRate: number;
   channels: number;
   bitsPerSample: number;
@@ -46,6 +47,14 @@ export interface TranscriptSegment {
   participantId: string | null;
   displayName: string;
   text: string;
+  // The audio on/off window this segment was spoken during, per the
+  // compiler's own `data.audio_track_id` stamp (see compiler.py). This
+  // is the *only* reliable way to join a segment back to its audio -
+  // arrival order between the two is NOT reliable (audio_stream_off is
+  // auto-derived and emitted before the authored transcript_segment
+  // that follows it - see applyEvent below). null when this segment
+  // has no matching audio window at all (e.g. text-only fixtures).
+  audioTrackId: string | null;
   audioBlobUrl: string | null;
   audioPending: boolean;
 }
@@ -84,6 +93,15 @@ interface SessionState {
 
   transcript: TranscriptSegment[];
   rawLog: RawLogEntry[];
+
+  // Finished WAV blob URLs keyed by track_id, for audio windows whose
+  // audio_stream_off has already resolved before the matching
+  // transcript_segment event (the common case - see the comment on
+  // TranscriptSegment.audioTrackId). Consumed (and deleted) as soon as
+  // the matching segment arrives; anything left behind at the end of a
+  // run means a track_id never got a transcript_segment at all, which
+  // is fine and expected for some scenarios.
+  pendingAudioByTrackId: Record<string, string>;
 
   audioPlaybackEnabled: boolean;
 
@@ -157,6 +175,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 
   transcript: [],
   rawLog: [],
+  pendingAudioByTrackId: {},
 
   audioPlaybackEnabled: false,
   runSpeedMultiplier: null,
@@ -166,7 +185,17 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   engineHistory: [],
 
   startSession: ({ libraryId, path, name }) => {
-    get().runAbort?.abort();
+    const prev = get();
+    prev.runAbort?.abort();
+    // Revoke every blob URL from a previous run before dropping them -
+    // otherwise repeated "Try again" runs on the same scenario leak one
+    // Blob per spoken utterance for the lifetime of the tab.
+    for (const seg of prev.transcript) {
+      if (seg.audioBlobUrl) URL.revokeObjectURL(seg.audioBlobUrl);
+    }
+    for (const url of Object.values(prev.pendingAudioByTrackId)) {
+      URL.revokeObjectURL(url);
+    }
     set({
       scenarioLibraryId: libraryId,
       scenarioPath: path,
@@ -180,6 +209,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       participantOrder: [],
       transcript: [],
       rawLog: [],
+      pendingAudioByTrackId: {},
       engineLatest: null,
       engineHistory: [],
     });
@@ -268,6 +298,7 @@ function applyEvent(
     const base = ensureParticipant(state, pid, typeof data.display_name === "string" ? data.display_name : undefined);
     const participant = { ...base.participants[pid] };
     let transcript = state.transcript;
+    let pendingAudio = state.pendingAudioByTrackId;
 
     switch (event.type) {
       case "participant_join": {
@@ -330,6 +361,7 @@ function applyEvent(
         participant.micOn = true;
         participant.audioTrack = {
           active: true,
+          trackId: typeof data.track_id === "string" ? data.track_id : makeId("track"),
           sampleRate: numOrUndef(data.sample_rate) ?? 16000,
           channels: numOrUndef(data.channels) ?? 1,
           bitsPerSample: 16,
@@ -341,7 +373,10 @@ function applyEvent(
       case "audio_stream_off": {
         participant.micOn = false;
         const track = participant.audioTrack;
-        if (track && state.audioPlaybackEnabled && track.chunks.length) {
+        // Guard against a stray/duplicate off event that doesn't match
+        // whatever window is actually open right now.
+        const offTrackId = typeof data.track_id === "string" ? data.track_id : null;
+        if (track && (!offTrackId || track.trackId === offTrackId) && state.audioPlaybackEnabled && track.chunks.length) {
           const pcm = concatBytes(track.chunks);
           const blob = pcmToWavBlob(pcm, {
             sampleRate: track.sampleRate,
@@ -349,36 +384,63 @@ function applyEvent(
             bitsPerSample: track.bitsPerSample,
           });
           const url = URL.createObjectURL(blob);
-          // Attach to the most recent segment from this participant that's
-          // still waiting on audio (transcript_segment fires while the
-          // track is still open, so it always precedes this).
-          const idx = [...state.transcript]
-            .reverse()
-            .findIndex((seg) => seg.participantId === pid && seg.audioPending);
+          // Join to the segment by its explicit audio_track_id (the id
+          // the compiler stamped on both sides of this relationship -
+          // see compiler.py), NOT by "whichever segment happens to be
+          // most recent" - audio_stream_off routinely arrives BEFORE
+          // the transcript_segment event for the same window (it's
+          // auto-derived and appended to the compiled timeline before
+          // the loop even reaches the authored transcript_segment that
+          // follows it), so a same-participant/most-recent-pending
+          // heuristic here silently attaches this audio to whatever
+          // *previous* segment is still waiting - or drops it if none
+          // is, which is exactly the "audio shifted onto the wrong
+          // card / first one vanishes / solo utterance never resolves"
+          // symptom.
+          const idx = state.transcript.findIndex((seg) => seg.audioTrackId === track.trackId);
           if (idx !== -1) {
-            const realIdx = state.transcript.length - 1 - idx;
             transcript = state.transcript.map((seg, i) =>
-              i === realIdx ? { ...seg, audioBlobUrl: url, audioPending: false } : seg
+              i === idx ? { ...seg, audioBlobUrl: url, audioPending: false } : seg
             );
+          } else {
+            // transcript_segment for this window hasn't arrived yet -
+            // stash the finished blob so it can be attached the moment
+            // that event does show up (this is in fact the normal case
+            // given the ordering above).
+            pendingAudio = { ...pendingAudio, [track.trackId]: url };
           }
         } else if (track) {
-          // playback disabled or nothing buffered - just clear the pending flag(s)
+          // playback disabled, nothing buffered, or a mismatched off -
+          // clear the pending flag on any segment already waiting on
+          // this exact track so its Play button doesn't stay "Buffering…"
+          // forever.
           transcript = state.transcript.map((seg) =>
-            seg.participantId === pid && seg.audioPending ? { ...seg, audioPending: false } : seg
+            seg.audioTrackId === track.trackId && seg.audioPending ? { ...seg, audioPending: false } : seg
           );
         }
         participant.audioTrack = null;
         break;
       }
       case "transcript_segment": {
+        const trackId = typeof data.audio_track_id === "string" ? data.audio_track_id : null;
+        const resolvedUrl = trackId ? pendingAudio[trackId] : undefined;
+        if (resolvedUrl && trackId) {
+          pendingAudio = Object.fromEntries(
+            Object.entries(pendingAudio).filter(([id]) => id !== trackId)
+          );
+        }
         const segment: TranscriptSegment = {
           id: makeId("seg"),
           t: event.t,
           participantId: pid,
           displayName: participant.displayName,
           text: typeof data.text === "string" ? data.text : "",
-          audioBlobUrl: null,
-          audioPending: state.audioPlaybackEnabled,
+          audioTrackId: trackId,
+          audioBlobUrl: resolvedUrl ?? null,
+          // Only "buffering" if there's an actual track to wait on -
+          // a segment with no audio_track_id (no matching audio_stream_on
+          // at all) has nothing coming, ever.
+          audioPending: state.audioPlaybackEnabled && !!trackId && !resolvedUrl,
         };
         transcript = pushCapped(state.transcript, segment, MAX_TRANSCRIPT_ENTRIES);
         participant.segmentCount += 1;
@@ -390,6 +452,7 @@ function applyEvent(
       participants: { ...base.participants, [pid]: participant },
       participantOrder: base.participantOrder,
       transcript,
+      pendingAudioByTrackId: pendingAudio,
     };
   });
 }
@@ -416,7 +479,16 @@ function applyStreamFrame(
       participant.lastFrameDataUrl = `data:image/jpeg;base64,${frame.data}`;
     } else if (frame.modality === "screenshare") {
       participant.lastScreenshareFrameDataUrl = `data:image/jpeg;base64,${frame.data}`;
-    } else if (frame.modality === "audio" && state.audioPlaybackEnabled && participant.audioTrack) {
+    } else if (
+      frame.modality === "audio" &&
+      state.audioPlaybackEnabled &&
+      participant.audioTrack &&
+      participant.audioTrack.trackId === frame.track_id
+    ) {
+      // trackId guard: without it, a chunk that arrives after its own
+      // audio_stream_off (or belonging to a since-superseded window)
+      // could get appended into whatever window happens to be open
+      // now, corrupting an unrelated utterance's audio.
       participant.audioTrack = {
         ...participant.audioTrack,
         chunks: [...participant.audioTrack.chunks, base64ToBytes(frame.data)],

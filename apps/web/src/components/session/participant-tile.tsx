@@ -2,7 +2,7 @@
 
 import { LogOut, Mic, MicOff, MonitorUp, Video, VideoOff } from "lucide-react";
 
-import { WebcamCanvas } from "@/components/session/webcam-canvas";
+import { FrameCanvas } from "@/components/session/frame-canvas";
 import { cn } from "@/lib/utils";
 import type { ParticipantState } from "@/store/session-store";
 
@@ -28,7 +28,7 @@ export function ParticipantTile({ participant }: { participant: ParticipantState
     >
       <div className="relative aspect-video w-full bg-black/40">
         {participant.webcamOn && participant.lastFrameDataUrl ? (
-          <WebcamCanvas frameDataUrl={participant.lastFrameDataUrl} className="size-full object-cover" />
+          <FrameCanvas frameDataUrl={participant.lastFrameDataUrl} className="size-full object-cover" />
         ) : (
           <div className="flex size-full items-center justify-center">
             <span className="flex size-12 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground">
@@ -55,6 +55,24 @@ export function ParticipantTile({ participant }: { participant: ParticipantState
           <IconBadge active={participant.webcamOn} onIcon={Video} offIcon={VideoOff} />
         </div>
       </div>
+
+      {/* Screenshare is its own video track (modality: "screenshare" -
+          see applyStreamFrame in session-store.ts), decoded into
+          lastScreenshareFrameDataUrl exactly like the webcam frame is.
+          That data was already flowing correctly - it just had no
+          consumer anywhere in the UI, so the only visible signal was
+          the "Presenting" badge above. This renders the actual feed. */}
+      {participant.screenshareOn && participant.lastScreenshareFrameDataUrl && (
+        <div className="relative aspect-video w-full border-t border-border bg-black/60">
+          <FrameCanvas
+            frameDataUrl={participant.lastScreenshareFrameDataUrl}
+            className="size-full object-contain"
+          />
+          <span className="absolute top-1.5 left-1.5 flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[0.65rem] text-white">
+            <MonitorUp className="size-3" /> Screen
+          </span>
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-2 px-2.5 py-2">
         <div className="min-w-0">

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Play, Square, Volume2, VolumeX } from "lucide-react";
+import { ArrowRight, Play, RotateCcw, Square, Volume2, VolumeX } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -44,10 +44,15 @@ export function SessionControls({
           <Button variant="destructive" onClick={onStop}>
             <Square className="size-3.5" /> Stop
           </Button>
+        ) : runStatus === "completed" ? (
+          <Button onClick={onStart}>
+            <RotateCcw className="size-3.5" />
+            Try again
+          </Button>
         ) : (
-          <Button onClick={onStart} disabled={runStatus === "completed"}>
+          <Button onClick={onStart}>
             <Play className="size-3.5" />
-            {runStatus === "completed" ? "Run complete" : "Start experiment"}
+            Start experiment
           </Button>
         )}
         {runStatus === "streaming" && (

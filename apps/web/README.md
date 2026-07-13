@@ -72,6 +72,17 @@ isn't needed to trust the pipeline - the frames drawing correctly and the
 transcript text lining up is enough for that. Flip "Decode audio for
 playback" on before starting a run to hear it.
 
+Audio is joined to its transcript segment by the compiler's explicit
+`track_id` / `data.audio_track_id` (see `compiler.py`), not by arrival
+order - `audio_stream_off` for a given utterance is actually emitted
+*before* its transcript_segment on the wire (it's auto-derived inline
+while compiling `audio_stream_on`, before the loop reaches the
+authored `transcript_segment` that follows by convention), so an
+order-based "attach to whatever's most recent" heuristic would
+misattach audio to the previous segment (or drop it) instead.
+`session-store.ts` keeps a small `pendingAudioByTrackId` map to bridge
+that gap regardless of which side resolves first.
+
 ## Setup
 
 ```bash

@@ -5,8 +5,15 @@ import { useEffect, useRef } from "react";
 /** Draws the latest base64 JPEG frame onto a canvas, cover-fit. Each
  * stream chunk from the simulator is a full independent JPEG (see
  * `media_gen.py`'s `extract_video_frames`), so there's no decoding
- * state to carry between frames - just draw-and-replace. */
-export function WebcamCanvas({
+ * state to carry between frames - just draw-and-replace.
+ *
+ * Modality-agnostic: webcam frames (`lastFrameDataUrl`) and screenshare
+ * frames (`lastScreenshareFrameDataUrl`) are both plain base64 JPEGs on
+ * the wire (`modality: "video"` vs `"screenshare"` in
+ * `applyStreamFrame`), so both feed this same component - previously
+ * named `WebcamCanvas`/`webcam-canvas.tsx` before screenshare grew a
+ * consumer of its own. */
+export function FrameCanvas({
   frameDataUrl,
   className,
 }: {

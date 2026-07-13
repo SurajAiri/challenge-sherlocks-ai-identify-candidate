@@ -75,6 +75,15 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
   }
 
   function handleStart() {
+    // Re-running the same scenario ("Try again" after "completed") needs
+    // to clear out the previous run's transcript/participants/log/audio
+    // first - startSession is otherwise only invoked once per scenario
+    // id (see the mount effect above), so without this a retry would
+    // just keep appending onto stale state from the last run instead of
+    // starting clean.
+    if (runStatus === "completed" || runStatus === "error") {
+      startSession({ libraryId: scenario!.id, path: scenario!.path, name: scenario!.name });
+    }
     setRunStatus("connecting");
     const controller = startSimulatorRun(
       scenario!.path,
