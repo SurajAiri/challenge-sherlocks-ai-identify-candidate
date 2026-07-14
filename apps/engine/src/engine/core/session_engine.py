@@ -72,9 +72,21 @@ class SessionEngine:
         "Event Bus" to each identifier box in the diagram. One-time
         identifiers are invoked separately, directly, from
         `_run_initial_identifiers` (they don't listen on the bus at
-        all - they run exactly once, off the join trigger)."""
-        for identifier in self.registry.identifiers:
-            for event_type in identifier.listens_to:
+        all - they run exactly once, off the join trigger).
+
+        Filtering is delegated to `registry.continuous_for_event_type`
+        rather than iterating `identifier.listens_to` directly - an
+        identifier's `run_mode` must be respected here: a ONE_TIME
+        identifier that also happens to declare `listens_to` (e.g. for
+        future use, or by copy-paste from a continuous one) must never
+        get `on_event` called repeatedly, since that would silently
+        violate its "runs exactly once" contract.
+        """
+        all_event_types = {
+            event_type for identifier in self.registry.identifiers for event_type in identifier.listens_to
+        }
+        for event_type in all_event_types:
+            for identifier in self.registry.continuous_for_event_type(event_type):
 
                 async def _invoke(event, _identifier=identifier) -> None:
                     # Fresh read-only view per call so identifiers

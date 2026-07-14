@@ -1,37 +1,69 @@
 """
 Output Formatter.
 
-Turns the current ParticipantStateRepository snapshot into the
-outbound `EngineMessage` the dashboard renders. Ranking is by
-`probability_candidate` (the normalized, competing-hypotheses track);
-`probability_not_candidate` rides along per-candidate for the
-dashboard/evaluator to use as an elimination signal, per the "we store
-two probabilities" note.
+Turns the current ParticipantStateRepository snapshot into the outbound
+`EngineMessage` the dashboard / anti-fraud router consumes. Ranking is
+by `probability_candidate` (the normalized, competing-hypotheses
+track); `probability_not_candidate` rides along independently, per the
+"we store two probabilities" note.
 
-`candidate_participant_id` is only populated once the top candidate
-clears MIN_REPORTING_CONFIDENCE - below that, the honest answer is "not
-sure yet", and reporting a low-confidence guess as if it were an
-answer is worse than reporting no answer (see requirements: "Gracefully
-handle uncertainty instead of making incorrect assumptions").
+`possible_candidate_ids` is deliberately NOT always length 1. The
+system may not skip/misname the real candidate, so instead of forcing
+a single guess whenever evidence is thin, three states are possible:
+
+  - []                    - not enough evidence yet ("insufficient_evidence")
+  - [single_id]           - one participant clearly leads ("confident")
+  - [id, id, ...]         - top few are within AMBIGUITY_MARGIN of each
+                            other ("ambiguous") - report all of them
+                            rather than arbitrarily picking one.
+
+`evidence` (the reasoning trail) is only populated for ids that made it
+into `possible_candidate_ids` - explainability matters for whoever is
+actually being named, not for every participant on every message.
 """
 from __future__ import annotations
 
-from engine.core.schemas import EngineCandidateOut, EngineMessage
+from engine.core.schemas import EngineMessage
 from engine.core.state_store import ParticipantState, ParticipantStateRepository
 
-MIN_REPORTING_CONFIDENCE = 0.35
+# Top candidate must clear this before we say anything at all - below
+# it, the honest answer is "not sure yet", not a low-confidence guess.
+INSUFFICIENT_EVIDENCE_THRESHOLD = 0.35
+
+# Top candidate must ALSO clear this higher bar, and lead everyone else
+# by at least AMBIGUITY_MARGIN, before we report a single confident id.
+# This is what stops one weak signal in a small call (e.g. 2 people,
+# uniform-prior baseline already 0.5) from being reported as a
+# confident pick - see the ambiguity-margin band below.
+CONFIDENT_THRESHOLD = 0.55
+AMBIGUITY_MARGIN = 0.15
+
+MAX_POSSIBLE_CANDIDATES = 3
 MAX_EVIDENCE_IN_OUTPUT = 4
 
 
-def _reasoning_trail(state: ParticipantState) -> list[str]:
+def _evidence_trail(state: ParticipantState) -> list[str]:
     return [e.reasoning for e in state.evidence_log[-MAX_EVIDENCE_IN_OUTPUT:]]
 
 
-def _summarize(state: ParticipantState) -> str:
-    if not state.evidence_log:
-        return "No evidence observed for this participant yet."
-    latest = state.evidence_log[-1]
-    return latest.reasoning
+def _select_possible_candidates(participants: list[ParticipantState]) -> list[str]:
+    if not participants:
+        return []
+
+    top = participants[0]
+    if top.probability_candidate < INSUFFICIENT_EVIDENCE_THRESHOLD:
+        return []
+
+    # Everyone within AMBIGUITY_MARGIN of the leader is "in contention".
+    band = [
+        p for p in participants
+        if top.probability_candidate - p.probability_candidate <= AMBIGUITY_MARGIN
+    ]
+
+    if len(band) == 1 and top.probability_candidate >= CONFIDENT_THRESHOLD:
+        return [top.participant_id]
+
+    return [p.participant_id for p in band[:MAX_POSSIBLE_CANDIDATES]]
 
 
 def format_message(repository: ParticipantStateRepository) -> EngineMessage:
@@ -41,26 +73,23 @@ def format_message(repository: ParticipantStateRepository) -> EngineMessage:
         reverse=True,
     )
 
-    top_candidates = [
-        EngineCandidateOut(
-            participant_id=p.participant_id,
-            display_name=p.display_name or None,
-            confidence=round(p.probability_candidate, 4),
-            probability_not_candidate=round(p.probability_not_candidate, 4),
-            reasoning=_summarize(p),
-            evidence=_reasoning_trail(p),
-        )
-        for p in participants
+    probability_being_candidate = [
+        (p.participant_id, round(p.probability_candidate, 4)) for p in participants
+    ]
+    probability_not_being_candidate = [
+        (p.participant_id, round(p.probability_not_candidate, 4)) for p in participants
     ]
 
-    top = participants[0] if participants else None
-    reported_top = top if (top is not None and top.probability_candidate >= MIN_REPORTING_CONFIDENCE) else None
+    possible_candidate_ids = _select_possible_candidates(participants)
+
+    by_id = {p.participant_id: p for p in participants}
+    evidence = {pid: _evidence_trail(by_id[pid]) for pid in possible_candidate_ids}
 
     return EngineMessage(
         type="prediction",
         t=repository.current_t,
-        candidate_participant_id=reported_top.participant_id if reported_top else None,
-        confidence=round(reported_top.probability_candidate, 4) if reported_top else None,
-        reasoning=_summarize(reported_top) if reported_top else "Not enough evidence yet to identify the candidate.",
-        top_candidates=top_candidates,
+        possible_candidate_ids=possible_candidate_ids,
+        probability_being_candidate=probability_being_candidate,
+        probability_not_being_candidate=probability_not_being_candidate,
+        evidence=evidence,
     )

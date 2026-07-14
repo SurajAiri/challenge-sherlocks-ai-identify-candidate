@@ -19,6 +19,8 @@ import asyncio
 
 import pytest
 
+from engine.core.identifiers.base import Identifier, IdentifierContext, IdentifierKind, IdentifierRunMode
+from engine.core.identifiers.registry import IdentifierRegistry
 from engine.core.schemas import (
     ContextFrame,
     SessionContext,
@@ -91,21 +93,27 @@ async def _run_demo_clean_shaped_scenario() -> dict:
 def test_candidate_identified_despite_nickname_and_decoy_observer():
     final = asyncio.run(_run_demo_clean_shaped_scenario())
 
-    assert final["candidate_participant_id"] == "p_mbp"
-    assert final["confidence"] is not None and final["confidence"] > 0.5
+    assert final["possible_candidate_ids"] == ["p_mbp"]
 
-    by_id = {c["participant_id"]: c for c in final["top_candidates"]}
+    being_candidate = dict(final["probability_being_candidate"])
+    not_candidate = dict(final["probability_not_being_candidate"])
+
     # Both interviewers and the silent, device-named observer must rank
     # below the candidate despite p_obs's name superficially looking
     # exactly as "device-like" as the candidate's.
-    assert by_id["p_mbp"]["confidence"] > by_id["p_alex"]["confidence"]
-    assert by_id["p_mbp"]["confidence"] > by_id["p_jordan"]["confidence"]
-    assert by_id["p_mbp"]["confidence"] > by_id["p_obs"]["confidence"]
+    assert being_candidate["p_mbp"] > being_candidate["p_alex"]
+    assert being_candidate["p_mbp"] > being_candidate["p_jordan"]
+    assert being_candidate["p_mbp"] > being_candidate["p_obs"]
 
     # Interviewers should have accumulated meaningful "not candidate"
     # evidence from the name match against context.interviewer_names.
-    assert by_id["p_alex"]["probability_not_candidate"] > 0.5
-    assert by_id["p_jordan"]["probability_not_candidate"] > 0.5
+    assert not_candidate["p_alex"] > 0.5
+    assert not_candidate["p_jordan"] > 0.5
+
+    # Explainability trail is only attached to the reported candidate,
+    # not to every participant on every message.
+    assert final["evidence"]["p_mbp"]
+    assert "p_alex" not in final["evidence"]
 
 
 def test_no_confident_guess_before_any_evidence():
@@ -123,7 +131,40 @@ def test_no_confident_guess_before_any_evidence():
     latest = send.messages[-1]  # type: ignore[attr-defined]
     # No name/context match, no speaking yet - the engine should say
     # "not sure" rather than guessing.
-    assert latest["candidate_participant_id"] is None
+    assert latest["possible_candidate_ids"] == []
+
+
+def test_one_time_identifier_is_never_invoked_off_the_continuous_bus():
+    """A ONE_TIME identifier that (perhaps by copy-paste) also declares
+    `listens_to` must NOT get `on_event` fired repeatedly - only
+    `on_join`, exactly once. Regression test for a real bug where
+    `_wire_continuous_identifiers` ignored `run_mode` entirely."""
+    calls = {"on_join": 0, "on_event": 0}
+
+    class OneTimeOnlyIdentifier(Identifier):
+        id = "test_one_time"
+        kind = IdentifierKind.INSTANT
+        run_mode = IdentifierRunMode.ONE_TIME
+        listens_to = frozenset({SimEventType.PARTICIPANT_UPDATE.value})
+
+        async def on_join(self, participant_id: str, ctx: IdentifierContext) -> None:
+            calls["on_join"] += 1
+
+        async def on_event(self, event, ctx: IdentifierContext) -> None:
+            calls["on_event"] += 1
+
+    async def send(payload: dict) -> None:
+        return None
+
+    async def run():
+        registry = IdentifierRegistry([OneTimeOnlyIdentifier()])
+        engine = SessionEngine(send=send, registry=registry)
+        await engine.handle_frame(_event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="A"))
+        await engine.handle_frame(_event(1, SimEventType.PARTICIPANT_UPDATE, "p_a", display_name="A2"))
+        await engine.handle_frame(_event(2, SimEventType.PARTICIPANT_UPDATE, "p_a", display_name="A3"))
+
+    asyncio.run(run())
+    assert calls == {"on_join": 1, "on_event": 0}
 
 
 if __name__ == "__main__":

@@ -69,10 +69,16 @@ core/
                             people can simultaneously be "almost certainly
                             not the candidate".
   output_formatter.py  Builds the outbound EngineMessage: ranks by
-                        probability_candidate, only reports a
-                        candidate_participant_id once the top score clears
-                        MIN_REPORTING_CONFIDENCE - below that the honest
-                        answer is "not sure yet", not a low-confidence guess.
+                        probability_candidate, and produces
+                        possible_candidate_ids - [] if nothing clears
+                        INSUFFICIENT_EVIDENCE_THRESHOLD, a single id if one
+                        participant clearly leads (clears CONFIDENT_THRESHOLD
+                        with no one else within AMBIGUITY_MARGIN), or several
+                        ids if multiple participants are in contention. The
+                        system must never skip/misname the real candidate, so
+                        ambiguity is reported explicitly rather than resolved
+                        by an arbitrary tie-break. Evidence trail is attached
+                        only to ids that made the cut.
   session_engine.py    The orchestrator ("Engine (continuous loop)" in the
                         diagram). Wires everything above together per
                         connection.

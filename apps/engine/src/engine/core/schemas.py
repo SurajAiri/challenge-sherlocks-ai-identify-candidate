@@ -170,19 +170,21 @@ class NormalizedEvidence(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class EngineCandidateOut(BaseModel):
-    participant_id: str
-    display_name: Optional[str] = None
-    confidence: float
-    probability_not_candidate: float = 0.0
-    reasoning: Optional[str] = None
-    evidence: list[str] = Field(default_factory=list)
-
-
 class EngineMessage(BaseModel):
     type: str = "prediction"
     t: float
-    candidate_participant_id: Optional[str] = None
-    confidence: Optional[float] = None
-    reasoning: Optional[str] = None
-    top_candidates: list[EngineCandidateOut] = Field(default_factory=list)
+    # Who the engine currently thinks could be the candidate. Length 0 = no
+    # signal yet, length 1 = confident single pick, length >1 = ambiguous -
+    # deliberately reporting multiple rather than forcing a single guess or
+    # going silent (see output_formatter.py for the selection rule).
+    possible_candidate_ids: list[str] = Field(default_factory=list)
+    # Every currently-known participant's two independent belief tracks,
+    # as (participant_id, probability) pairs - full pool, not just the
+    # possible candidates, so the dashboard/evaluator can see the whole
+    # competition, not just the winner.
+    probability_being_candidate: list[tuple[str, float]] = Field(default_factory=list)
+    probability_not_being_candidate: list[tuple[str, float]] = Field(default_factory=list)
+    # Reasoning trail, populated ONLY for ids in possible_candidate_ids -
+    # explainability matters for whoever we're actually naming, not for
+    # every participant on every message.
+    evidence: dict[str, list[str]] = Field(default_factory=dict)
