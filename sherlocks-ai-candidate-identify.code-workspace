@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "apps/engine"
+		},
+		{
+			"path": "apps/simulator"
+		},
+		{
+			"path": "apps/web"
+		}
+	],
+	"settings": {}
+}
