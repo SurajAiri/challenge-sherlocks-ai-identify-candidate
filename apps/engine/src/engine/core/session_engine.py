@@ -208,7 +208,8 @@ class SessionEngine:
     async def _consume_evidence(self, evidence: Evidence) -> None:
         processor = self.registry.get(evidence.identifier_id)
         identifier_weight = processor.weight if isinstance(processor, Identifier) else 1.0
-        normalized = normalize(evidence, identifier_weight)
+        decay_half_life = processor.decay_half_life if isinstance(processor, Identifier) else None
+        normalized = normalize(evidence, identifier_weight, decay_half_life)
         self.belief_engine.apply(self.store, normalized)
         # Belief just moved -> re-derive detection state -> re-derive
         # scheduling tier, so the *next* incoming event is throttled
@@ -267,7 +268,13 @@ class SessionEngine:
         await self.send(message.model_dump(mode="json"))
 
     async def heartbeat(self) -> None:
-        """Re-emit the current snapshot with no new evidence - keeps
-        the dashboard's confidence display fresh (same numbers, bumped
-        timestamp) even through a long stretch with no events."""
+        """Re-emit the current snapshot with no new evidence. This is
+        also the only place decay becomes visible during a quiet
+        stretch: recompute_probabilities re-derives every participant's
+        probabilities from their identifier_contributions' *currently*
+        decayed values (see belief_engine.py) using the elapsed time
+        since each contribution's last touch - without this call,
+        decay would only ever become visible on the next actual event,
+        which defeats the point during a long silence."""
+        self.belief_engine.recompute_probabilities(self.store)
         await self._emit_snapshot()

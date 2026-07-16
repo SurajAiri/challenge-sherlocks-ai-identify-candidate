@@ -64,6 +64,20 @@ class Identifier(Processor):
     # on the shared base.
     weight: float = 1.0
 
+    # Opt-in: seconds until this identifier's *accumulated* contribution
+    # to a participant's belief is worth half as much, decaying further
+    # from there the longer it goes without a fresh observation. None
+    # (the default) means "no decay" - the exact behavior every
+    # identifier had before this existed, so nothing changes unless you
+    # deliberately set this. Leave it None for anything that should
+    # stay a permanent signal once observed (e.g. a strong
+    # interviewer-name match that should keep someone eliminated); set
+    # it for anything time-sensitive (e.g. speaking share "right now"
+    # shouldn't still be worth full strength 20 minutes later with
+    # nothing to back it up). See core/belief_engine.py for how this is
+    # actually applied.
+    decay_half_life: Optional[float] = None
+
     async def on_join(self, participant_id: str, ctx: IdentifierContext) -> None:  # type: ignore[override]
         """Called once, immediately after a participant entity is
         created (before the continuous loop is even running for that

@@ -47,6 +47,34 @@ class TranscriptSegment:
 
 
 @dataclass
+class IdentifierContribution:
+    """One identifier's own running sub-total toward a participant's
+    belief - the Belief Engine keeps one of these per identifier that
+    has ever emitted Evidence for this participant, instead of one
+    shared flat accumulator, specifically so each identifier's
+    contribution can decay independently (see core/belief_engine.py).
+
+    `candidate_logit`/`not_candidate_logit` are RAW (undecayed) running
+    sums, clamped the same way the old single accumulator was so one
+    identifier firing relentlessly can't dominate purely by
+    out-accumulating everyone else. Decay is applied lazily, on read,
+    by the Belief Engine - `last_touched_t` plus this identifier's own
+    `decay_half_life` (carried along here since it's known at the
+    moment evidence lands, so recompute doesn't need a registry
+    lookup) is all that's needed to compute "how much is this bucket
+    worth right now," so nothing has to walk every participant
+    "ticking down" a number on a timer.
+    """
+
+    candidate_logit: float = 0.0
+    not_candidate_logit: float = 0.0
+    last_touched_t: float = 0.0
+    # None = no decay (sticky, permanent contribution) - the default,
+    # and the exact behavior every identifier had before decay existed.
+    decay_half_life: Optional[float] = None
+
+
+@dataclass
 class StreamModalityStats:
     """Lightweight presence/liveness stats per modality. Deliberately
     does NOT retain decoded media - that's an identifier's job if/when
@@ -92,6 +120,14 @@ class ParticipantState:
     )
 
     # --- belief (owned by the Belief Engine; identifiers must not write these) ---
+    # Source of truth: one raw, undecayed sub-total per identifier that
+    # has contributed evidence for this participant (see
+    # IdentifierContribution above).
+    identifier_contributions: dict[str, IdentifierContribution] = field(default_factory=dict)
+    # Cached, derived from identifier_contributions as of the last
+    # recompute (decayed sum, clamped) - read these for "what does the
+    # engine currently believe," don't read identifier_contributions
+    # directly unless you specifically need per-identifier detail.
     logit_candidate: float = 0.0
     logit_not_candidate: float = 0.0
     probability_candidate: float = 0.0

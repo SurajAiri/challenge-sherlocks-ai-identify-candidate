@@ -159,6 +159,11 @@ class NormalizedEvidence(BaseModel):
     identifier_weight: float
     delta_candidate_logit: float
     delta_not_candidate_logit: float
+    # Carried straight from Identifier.decay_half_life (None = no
+    # decay) so the Belief Engine can stamp it onto the right
+    # IdentifierContribution bucket without needing its own registry
+    # lookup - see core/belief_engine.py.
+    decay_half_life: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------

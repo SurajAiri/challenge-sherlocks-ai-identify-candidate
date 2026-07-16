@@ -21,6 +21,8 @@ overshooting.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from engine.core.schemas import Evidence, NormalizedEvidence
 
 # One "full-strength, full-weight" piece of evidence shifts log-odds by
@@ -37,7 +39,9 @@ BASE_LOGIT_SCALE = 1.6
 CROSS_TRACK_DAMPING = 0.35
 
 
-def normalize(evidence: Evidence, identifier_weight: float) -> NormalizedEvidence:
+def normalize(
+    evidence: Evidence, identifier_weight: float, decay_half_life: Optional[float] = None
+) -> NormalizedEvidence:
     weight = max(0.0, identifier_weight)
     magnitude = weight * evidence.strength * BASE_LOGIT_SCALE
 
@@ -53,4 +57,11 @@ def normalize(evidence: Evidence, identifier_weight: float) -> NormalizedEvidenc
         identifier_weight=weight,
         delta_candidate_logit=delta_candidate,
         delta_not_candidate_logit=delta_not_candidate,
+        # Decay itself has nothing to do with normalization - it's not
+        # a function of this one observation's magnitude, it's a
+        # function of elapsed time, applied later at Belief Engine read
+        # time. This is just the pass-through point that gets the
+        # identifier's configured half-life from "known at evidence
+        # time" to "known when the belief engine buckets it."
+        decay_half_life=decay_half_life,
     )
