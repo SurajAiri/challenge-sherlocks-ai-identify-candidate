@@ -23,9 +23,17 @@ actually being named, not for every participant on every message.
 """
 from __future__ import annotations
 
-from engine.core.detection_state import DetectionState
+from typing import TYPE_CHECKING, Optional
+
 from engine.core.schemas import EngineMessage
 from engine.core.state_store import ParticipantState, ParticipantStateRepository
+
+if TYPE_CHECKING:
+    # detection_state.py imports the three threshold constants below
+    # from this module at *its* module-load time, so this module must
+    # not import DetectionState back at module-load time in turn - see
+    # format_message's local import for the runtime side of this.
+    from engine.core.detection_state import DetectionState
 
 # Top candidate must clear this before we say anything at all - below
 # it, the honest answer is "not sure yet", not a low-confidence guess.
@@ -69,8 +77,13 @@ def _select_possible_candidates(participants: list[ParticipantState]) -> list[st
 
 def format_message(
     repository: ParticipantStateRepository,
-    detection_state: DetectionState = DetectionState.SEARCHING,
+    detection_state: Optional["DetectionState"] = None,
 ) -> EngineMessage:
+    from engine.core.detection_state import DetectionState as _DetectionState
+
+    if detection_state is None:
+        detection_state = _DetectionState.SEARCHING
+
     participants = sorted(
         repository.participants.values(),
         key=lambda p: p.probability_candidate,

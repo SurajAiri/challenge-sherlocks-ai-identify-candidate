@@ -1,98 +1,76 @@
 """
-Identifier base class - the pluggable unit of "weak signal" reasoning.
+Identifier base class - the pluggable unit of "weak signal" reasoning,
+and the *emitting* subset of Processor (see core/processor.py for the
+full writeup of the shared kind/run_mode/listens_to/depends_on axes -
+they're defined once, there, and Identifier inherits them unchanged).
 
-Two independent axes, per the architecture notes:
-  - IdentifierKind: INSTANT (reacts to a single event in isolation) vs
-    TEMPORAL (reasons about accumulated state / a window over time).
-    This is about *what the identifier looks at*.
-  - IdentifierRunMode: ONE_TIME (runs exactly once, right when a
-    participant is created) vs CONTINUOUS (runs again on every
-    matching event for the lifetime of the session). This is about
-    *when the identifier runs*.
+An Identifier adds exactly one thing on top of a plain Processor:
+`emit()`, i.e. the ability to publish Evidence for the Belief Engine.
+A plain Processor cannot do this - if something needs to move the
+candidate-probability needle, it must be an Identifier; if it's purely
+reusable computation other things depend on (decode, embed, ...), it
+should be a Processor instead. This split is what lets an expensive
+extraction step be shared by several Identifiers without any of them
+having to also be "the thing that owns whether this counts as
+evidence."
 
-A concrete identifier can implement either or both hooks:
-  - `on_join`   -> invoked once by the "Initial One Time Run" step.
-  - `on_event`  -> invoked by the continuous Event Bus for every event
-                   whose type is in `listens_to`.
+`IdentifierKind`/`IdentifierRunMode` are re-exported aliases of
+`ProcessorKind`/`ProcessorRunMode` (not separate enums) precisely so
+this axis stays single-vocabulary across both layers, per the earlier
+discussion - existing identifiers that import these names keep working
+unchanged, they're just importing the same enum under its established
+name here.
 
 Both hooks receive an `IdentifierContext` giving them a *read-only*
-view of participant state plus an `emit` callback to publish Evidence.
-Identifiers never write to the state store directly and never talk to
-each other directly - all coordination happens through evidence, which
-keeps each identifier independently pluggable/testable/removable.
+view of participant state, a *read-only* view of the Feature Cache
+(for reading any declared `depends_on` Processor's output), and an
+`emit` callback to publish Evidence. Identifiers never write to the
+state store or the Feature Cache directly and never talk to each
+other directly - all coordination happens through Evidence (for
+identification results) or the Feature Cache (for shared computation),
+which keeps each identifier independently pluggable/testable/removable.
 """
 from __future__ import annotations
 
-from abc import ABC
 from dataclasses import dataclass
-from enum import Enum
 from typing import Awaitable, Callable, Optional
 
+from engine.core.processor import Processor, ProcessorContext, ProcessorKind, ProcessorRunMode
 from engine.core.schemas import Evidence, EvidenceDirection, SimEvent
-from engine.core.scheduler import SchedulingTier
-from engine.core.state_store import ParticipantStateReadOnlyView
 
-
-class IdentifierKind(str, Enum):
-    INSTANT = "instant"
-    TEMPORAL = "temporal"
-
-
-class IdentifierRunMode(str, Enum):
-    ONE_TIME = "one_time"
-    CONTINUOUS = "continuous"
-    BOTH = "both"
-
+# Single-vocabulary axis shared with Processor - see module docstring.
+IdentifierKind = ProcessorKind
+IdentifierRunMode = ProcessorRunMode
 
 EmitFn = Callable[[Evidence], Awaitable[None]]
 
 
 @dataclass
-class IdentifierContext:
-    state: ParticipantStateReadOnlyView
+class IdentifierContext(ProcessorContext):
     emit: EmitFn
 
 
-class Identifier(ABC):
+class Identifier(Processor):
     """Subclass this, set the class attributes, override the hook(s)
     you need. Nothing is abstract-required beyond `id` - an identifier
     that only implements `on_join` (and not `on_event`) is valid, and
     vice versa."""
 
-    id: str = "unnamed_identifier"
     # Relative weight this identifier's evidence carries once combined
     # by the Belief Engine. Tune per-identifier as false-positive rate
     # becomes known from evaluation - this is the "weighted" in
-    # "Pluggable Weighted Continuous Identifiers".
+    # "Pluggable Weighted Continuous Identifiers". Meaningless (and
+    # unused) on a plain Processor, which is why it lives here and not
+    # on the shared base.
     weight: float = 1.0
-    kind: IdentifierKind = IdentifierKind.INSTANT
-    run_mode: IdentifierRunMode = IdentifierRunMode.CONTINUOUS
-    # SimEventType values (as strings) this identifier wants delivered
-    # to `on_event`. Use {"*"} to receive every event type.
-    listens_to: frozenset[str] = frozenset()
 
-    # Opt-in scheduling throttle: minimum seconds between two `on_event`
-    # runs for the *same participant*, per active SchedulingTier. Empty
-    # dict (the default) means "never throttled" - cheap identifiers
-    # (name_match, qa_pattern, ...) should leave this empty and stay
-    # exactly as low-latency/reactive as they are today. Only expensive
-    # identifiers (CV/audio ML) should declare this, e.g.:
-    #   {SchedulingTier.AGGRESSIVE: 2.0, SchedulingTier.BALANCED: 5.0,
-    #    SchedulingTier.CONSERVATIVE: 15.0}
-    # Class-level empty dict is safe here: subclasses only ever read
-    # this mapping (via .get in Scheduler.may_run), never mutate it
-    # in place, so there's no shared-mutable-default hazard despite
-    # Identifier not being a dataclass.
-    min_interval_by_tier: dict[SchedulingTier, float] = {}
-
-
-    async def on_join(self, participant_id: str, ctx: IdentifierContext) -> None:
+    async def on_join(self, participant_id: str, ctx: IdentifierContext) -> None:  # type: ignore[override]
         """Called once, immediately after a participant entity is
         created (before the continuous loop is even running for that
         participant), if run_mode is ONE_TIME or BOTH."""
         return None
 
-    async def on_event(self, event: SimEvent, ctx: IdentifierContext) -> None:
+    async def on_event(self, event: SimEvent, ctx: IdentifierContext) -> None:  # type: ignore[override]
         """Called for every event whose type is in `listens_to`, if
         run_mode is CONTINUOUS or BOTH."""
         return None
