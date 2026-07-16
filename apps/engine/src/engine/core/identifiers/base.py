@@ -29,6 +29,7 @@ from enum import Enum
 from typing import Awaitable, Callable, Optional
 
 from engine.core.schemas import Evidence, EvidenceDirection, SimEvent
+from engine.core.scheduler import SchedulingTier
 from engine.core.state_store import ParticipantStateReadOnlyView
 
 
@@ -69,6 +70,21 @@ class Identifier(ABC):
     # SimEventType values (as strings) this identifier wants delivered
     # to `on_event`. Use {"*"} to receive every event type.
     listens_to: frozenset[str] = frozenset()
+
+    # Opt-in scheduling throttle: minimum seconds between two `on_event`
+    # runs for the *same participant*, per active SchedulingTier. Empty
+    # dict (the default) means "never throttled" - cheap identifiers
+    # (name_match, qa_pattern, ...) should leave this empty and stay
+    # exactly as low-latency/reactive as they are today. Only expensive
+    # identifiers (CV/audio ML) should declare this, e.g.:
+    #   {SchedulingTier.AGGRESSIVE: 2.0, SchedulingTier.BALANCED: 5.0,
+    #    SchedulingTier.CONSERVATIVE: 15.0}
+    # Class-level empty dict is safe here: subclasses only ever read
+    # this mapping (via .get in Scheduler.may_run), never mutate it
+    # in place, so there's no shared-mutable-default hazard despite
+    # Identifier not being a dataclass.
+    min_interval_by_tier: dict[SchedulingTier, float] = {}
+
 
     async def on_join(self, participant_id: str, ctx: IdentifierContext) -> None:
         """Called once, immediately after a participant entity is

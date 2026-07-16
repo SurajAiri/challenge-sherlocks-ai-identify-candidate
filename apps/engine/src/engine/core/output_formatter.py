@@ -23,6 +23,7 @@ actually being named, not for every participant on every message.
 """
 from __future__ import annotations
 
+from engine.core.detection_state import DetectionState
 from engine.core.schemas import EngineMessage
 from engine.core.state_store import ParticipantState, ParticipantStateRepository
 
@@ -66,7 +67,10 @@ def _select_possible_candidates(participants: list[ParticipantState]) -> list[st
     return [p.participant_id for p in band[:MAX_POSSIBLE_CANDIDATES]]
 
 
-def format_message(repository: ParticipantStateRepository) -> EngineMessage:
+def format_message(
+    repository: ParticipantStateRepository,
+    detection_state: DetectionState = DetectionState.SEARCHING,
+) -> EngineMessage:
     participants = sorted(
         repository.participants.values(),
         key=lambda p: p.probability_candidate,
@@ -92,4 +96,5 @@ def format_message(repository: ParticipantStateRepository) -> EngineMessage:
         probability_being_candidate=probability_being_candidate,
         probability_not_being_candidate=probability_not_being_candidate,
         evidence=evidence,
+        detection_state=detection_state.value,
     )

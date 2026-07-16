@@ -188,3 +188,9 @@ class EngineMessage(BaseModel):
     # explainability matters for whoever we're actually naming, not for
     # every participant on every message.
     evidence: dict[str, list[str]] = Field(default_factory=dict)
+    # Session-level identification stage (see core/detection_state.py).
+    # Purely informational for the dashboard/evaluator - the engine's
+    # own behavior already reacts to this via the Scheduler; exposing
+    # it outbound is for visibility/debugging, not a control signal
+    # the dashboard is expected to act on.
+    detection_state: str = "searching"

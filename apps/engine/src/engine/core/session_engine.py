@@ -30,6 +30,7 @@ from engine.core.evidence_normalizer import normalize
 from engine.core.identifiers.base import IdentifierContext
 from engine.core.identifiers.registry import IdentifierRegistry, default_registry
 from engine.core.output_formatter import format_message
+from engine.core.scheduler import Scheduler
 from engine.core.schemas import (
     ContextFrame,
     ErrorFrame,
@@ -59,6 +60,11 @@ class SessionEngine:
         self.raw_bus = EventBus(name="raw_events")
         self.evidence_bus = EventBus(name="evidence")
         self.belief_engine = BeliefEngine()
+        # Tier follows DetectionState (see belief_engine.recompute_probabilities
+        # -> DetectionStateTracker.update, called after every evidence update,
+        # i.e. before the *next* event's identifiers run). Only identifiers
+        # that opt in via `min_interval_by_tier` are ever throttled.
+        self.scheduler = Scheduler()
 
         # Every identifier's evidence flows through the same
         # normalize -> belief-engine pipeline, regardless of which
@@ -92,7 +98,17 @@ class SessionEngine:
                     # Fresh read-only view per call so identifiers
                     # always see latest state, not a stale snapshot
                     # captured at wiring time.
+                    participant_id = getattr(event, "participant_id", None)
+                    if participant_id is not None and not self.scheduler.may_run(
+                        _identifier.id,
+                        participant_id,
+                        self.store.current_t,
+                        _identifier.min_interval_by_tier,
+                    ):
+                        return
                     await _identifier.on_event(event, self._make_identifier_ctx())
+                    if participant_id is not None:
+                        self.scheduler.record_run(_identifier.id, participant_id, self.store.current_t)
 
                 self.raw_bus.subscribe(event_type, _invoke)
 
@@ -108,6 +124,11 @@ class SessionEngine:
         )
         normalized = normalize(evidence, identifier_weight)
         self.belief_engine.apply(self.store, normalized)
+        # Belief just moved -> re-derive detection state -> re-derive
+        # scheduling tier, so the *next* incoming event is throttled
+        # (or not) according to where the session's confidence actually
+        # stands right now, not last message's tier.
+        self.scheduler.set_tier_from_state(self.belief_engine.current_detection_state)
 
     # -- frame ingestion --------------------------------------------------
 
@@ -152,7 +173,7 @@ class SessionEngine:
                 logger.exception("identifier %r failed in on_join", identifier.id)
 
     async def _emit_snapshot(self) -> None:
-        message = format_message(self.store)
+        message = format_message(self.store, self.belief_engine.current_detection_state)
         await self.send(message.model_dump(mode="json"))
 
     async def heartbeat(self) -> None:

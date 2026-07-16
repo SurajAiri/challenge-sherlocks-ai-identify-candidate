@@ -19,6 +19,7 @@ import asyncio
 
 import pytest
 
+from engine.core.detection_state import DetectionState
 from engine.core.identifiers.base import Identifier, IdentifierContext, IdentifierKind, IdentifierRunMode
 from engine.core.identifiers.registry import IdentifierRegistry
 from engine.core.schemas import (
@@ -28,6 +29,7 @@ from engine.core.schemas import (
     SimEventFrame,
     SimEventType,
 )
+from engine.core.scheduler import SchedulingTier
 from engine.core.session_engine import SessionEngine
 
 
@@ -165,6 +167,67 @@ def test_one_time_identifier_is_never_invoked_off_the_continuous_bus():
 
     asyncio.run(run())
     assert calls == {"on_join": 1, "on_event": 0}
+
+
+def test_detection_state_reaches_stable_and_is_reported():
+    """The demo_clean-shaped scenario accumulates enough sustained,
+    unambiguous evidence for p_mbp that the session should settle into
+    STABLE_CANDIDATE by the end - and that state should be visible on
+    the outbound message, not just internal to the belief engine."""
+    final = asyncio.run(_run_demo_clean_shaped_scenario())
+    assert final["detection_state"] == DetectionState.STABLE_CANDIDATE.value
+
+
+def test_scheduler_throttles_opted_in_identifier_but_not_others():
+    """An identifier that declares `min_interval_by_tier` is throttled
+    according to the active tier; an identifier that declares nothing
+    keeps firing on every matching event, unaffected - opt-in only, per
+    core/scheduler.py."""
+    calls = {"throttled": 0, "unthrottled": 0}
+
+    class ThrottledIdentifier(Identifier):
+        id = "throttled"
+        kind = IdentifierKind.INSTANT
+        run_mode = IdentifierRunMode.CONTINUOUS
+        listens_to = frozenset({SimEventType.SPEAKING_START.value})
+        # Effectively "never run twice" at any tier for this test -
+        # any interval bigger than the test's event spacing proves
+        # throttling is active.
+        min_interval_by_tier = {
+            SchedulingTier.AGGRESSIVE: 1000.0,
+            SchedulingTier.BALANCED: 1000.0,
+            SchedulingTier.CONSERVATIVE: 1000.0,
+        }
+
+        async def on_event(self, event, ctx: IdentifierContext) -> None:
+            calls["throttled"] += 1
+
+    class UnthrottledIdentifier(Identifier):
+        id = "unthrottled"
+        kind = IdentifierKind.INSTANT
+        run_mode = IdentifierRunMode.CONTINUOUS
+        listens_to = frozenset({SimEventType.SPEAKING_START.value})
+        # No min_interval_by_tier declared -> default empty dict -> never throttled.
+
+        async def on_event(self, event, ctx: IdentifierContext) -> None:
+            calls["unthrottled"] += 1
+
+    async def send(payload: dict) -> None:
+        return None
+
+    async def run():
+        registry = IdentifierRegistry([ThrottledIdentifier(), UnthrottledIdentifier()])
+        engine = SessionEngine(send=send, registry=registry)
+        await engine.handle_frame(_event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="A"))
+        # Three SPEAKING_START events, well within the throttled
+        # identifier's declared interval of each other.
+        await engine.handle_frame(_event(1, SimEventType.SPEAKING_START, "p_a"))
+        await engine.handle_frame(_event(2, SimEventType.SPEAKING_START, "p_a"))
+        await engine.handle_frame(_event(3, SimEventType.SPEAKING_START, "p_a"))
+
+    asyncio.run(run())
+    assert calls["throttled"] == 1  # only the first call got through
+    assert calls["unthrottled"] == 3  # every call got through
 
 
 if __name__ == "__main__":

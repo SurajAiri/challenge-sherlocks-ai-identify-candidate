@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import math
 
+from engine.core.detection_state import DetectionState, DetectionStateTracker
 from engine.core.schemas import NormalizedEvidence
 from engine.core.state_store import ParticipantState, ParticipantStateRepository
 
@@ -59,6 +60,12 @@ def softmax(logits: dict[str, float]) -> dict[str, float]:
 
 
 class BeliefEngine:
+    def __init__(self) -> None:
+        # One tracker per session, alongside the belief state itself -
+        # detection state is a read of the belief snapshot, recomputed
+        # in the same place/cadence as probabilities themselves.
+        self.detection_state = DetectionStateTracker()
+
     def apply(self, repository: ParticipantStateRepository, normalized: NormalizedEvidence) -> None:
         pid = normalized.evidence.participant_id
         if pid is None:
@@ -85,7 +92,14 @@ class BeliefEngine:
         for pid, state in repository.participants.items():
             state.probability_candidate = probs.get(pid, 0.0)
             state.probability_not_candidate = sigmoid(state.logit_not_candidate)
+        # Detection state is derived from the same fresh softmax pool,
+        # not scored independently - see detection_state.py docstring.
+        self.detection_state.update(list(repository.participants.values()))
 
     @staticmethod
     def is_eliminated(state: ParticipantState) -> bool:
         return state.probability_not_candidate >= NOT_CANDIDATE_ELIMINATION_THRESHOLD
+
+    @property
+    def current_detection_state(self) -> DetectionState:
+        return self.detection_state.state
