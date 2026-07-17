@@ -12,13 +12,13 @@ these typed objects, never raw dicts.
 Kept intentionally close to the TS source of truth. If the dashboard's
 `types.ts` changes, this file is the first thing to update.
 """
+
 from __future__ import annotations
 
 from enum import Enum
 from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
-
 
 # ---------------------------------------------------------------------------
 # Event / stream primitives (matches apps/web/src/lib/types.ts EVENT_TYPES)
@@ -188,7 +188,9 @@ class EngineMessage(BaseModel):
     # possible candidates, so the dashboard/evaluator can see the whole
     # competition, not just the winner.
     probability_being_candidate: list[tuple[str, float]] = Field(default_factory=list)
-    probability_not_being_candidate: list[tuple[str, float]] = Field(default_factory=list)
+    probability_not_being_candidate: list[tuple[str, float]] = Field(
+        default_factory=list
+    )
     # Reasoning trail, populated ONLY for ids in possible_candidate_ids -
     # explainability matters for whoever we're actually naming, not for
     # every participant on every message.

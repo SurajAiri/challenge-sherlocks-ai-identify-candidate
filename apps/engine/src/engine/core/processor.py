@@ -38,6 +38,7 @@ a dependency on it. Returning None means "nothing new to publish this
 tick," which is different from *failing* - it doesn't evict what's
 already cached.
 """
+
 from __future__ import annotations
 
 from abc import ABC
@@ -46,8 +47,8 @@ from enum import Enum
 from typing import Any, Optional
 
 from engine.core.feature_cache import FeatureCacheReadView
-from engine.core.schemas import SimEvent
 from engine.core.scheduler import SchedulingTier
+from engine.core.schemas import SimEvent
 from engine.core.state_store import ParticipantStateReadOnlyView
 
 
@@ -132,7 +133,9 @@ class Processor(ABC):
     # cost, and never touches the cache.
     enabled: bool = True
 
-    async def on_join(self, participant_id: str, ctx: ProcessorContext) -> Optional[Any]:
+    async def on_join(
+        self, participant_id: str, ctx: ProcessorContext
+    ) -> Optional[Any]:
         """Called once, immediately after a participant entity is
         created, if run_mode is ONE_TIME or BOTH. Return a value to
         publish it into the Feature Cache under this processor's id;

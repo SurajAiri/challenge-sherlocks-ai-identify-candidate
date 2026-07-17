@@ -30,6 +30,7 @@ participant", whereas what we actually want here is "how often may
 this identifier make ONE LLM call covering everyone in the window",
 which is a session-level cadence, not a per-participant one.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -66,7 +67,9 @@ class _WindowEntry:
 
 
 class ParticipantRoleVerdict(BaseModel):
-    participant_id: str = Field(description="Must be one of the participant_ids given in the prompt.")
+    participant_id: str = Field(
+        description="Must be one of the participant_ids given in the prompt."
+    )
     verdict: Literal["interviewee", "interviewer", "observer", "unclear"]
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: str = Field(description="One short sentence explaining the verdict.")
@@ -126,7 +129,12 @@ class LLMTranscriptRoleIdentifier(Identifier):
         display_name = state.display_name if state else event.participant_id
 
         self._window.append(
-            _WindowEntry(t=event.t, participant_id=event.participant_id, display_name=display_name, text=text)
+            _WindowEntry(
+                t=event.t,
+                participant_id=event.participant_id,
+                display_name=display_name,
+                text=text,
+            )
         )
         if len(self._window) > MAX_WINDOW_SEGMENTS:
             self._window = self._window[-MAX_WINDOW_SEGMENTS:]
@@ -136,7 +144,9 @@ class LLMTranscriptRoleIdentifier(Identifier):
         if len(distinct_speakers) < MIN_DISTINCT_SPEAKERS:
             return
 
-        enough_new_segments = self._segments_since_last_call >= MIN_NEW_SEGMENTS_BETWEEN_CALLS
+        enough_new_segments = (
+            self._segments_since_last_call >= MIN_NEW_SEGMENTS_BETWEEN_CALLS
+        )
         enough_time_elapsed = (event.t - self._last_call_t) >= MIN_SECONDS_BETWEEN_CALLS
         if not (enough_new_segments or enough_time_elapsed):
             return
@@ -160,7 +170,10 @@ class LLMTranscriptRoleIdentifier(Identifier):
             return
 
         for verdict in assessment.assessments:
-            if verdict.participant_id not in distinct_speakers or verdict.confidence <= 0.0:
+            if (
+                verdict.participant_id not in distinct_speakers
+                or verdict.confidence <= 0.0
+            ):
                 continue
 
             if verdict.verdict == "interviewee":
@@ -170,7 +183,10 @@ class LLMTranscriptRoleIdentifier(Identifier):
                     signal="llm_transcript_interviewee",
                     direction="for_candidate",
                     strength=verdict.confidence,
-                    reasoning=f"LLM transcript-behavior assessment: interviewee-like - {verdict.reasoning}",
+                    reasoning=(
+                        f"LLM transcript-behavior assessment: interviewee-like - "
+                        f"{verdict.reasoning}"
+                    ),
                     t=event.t,
                 )
             elif verdict.verdict in ("interviewer", "observer"):
@@ -185,7 +201,10 @@ class LLMTranscriptRoleIdentifier(Identifier):
                     signal=f"llm_transcript_{verdict.verdict}",
                     direction="against_candidate",
                     strength=verdict.confidence * scale,
-                    reasoning=f"LLM transcript-behavior assessment: {verdict.verdict}-like - {verdict.reasoning}",
+                    reasoning=(
+                        f"LLM transcript-behavior assessment: "
+                        f"{verdict.verdict}-like - {verdict.reasoning}"
+                    ),
                     t=event.t,
                 )
             # "unclear" -> no evidence, exactly like name_match's silence

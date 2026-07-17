@@ -10,6 +10,7 @@ SessionEngine dispatch level.
 
 Run with: `uv run pytest` from `apps/engine/`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,12 +21,22 @@ import pytest
 from engine.core.identifiers.base import Identifier, IdentifierContext
 from engine.core.processor import Processor, ProcessorContext, ProcessorRunMode
 from engine.core.registry import DependencyCycleError, ProcessorRegistry
-from engine.core.schemas import SessionContext, SimEvent, SimEventFrame, SimEventType, ContextFrame
+from engine.core.schemas import (
+    ContextFrame,
+    SessionContext,
+    SimEvent,
+    SimEventFrame,
+    SimEventType,
+)
 from engine.core.session_engine import SessionEngine
 
 
-def _event(t: float, type_: SimEventType, participant_id: str | None, **data) -> SimEventFrame:
-    return SimEventFrame(payload=SimEvent(t=t, type=type_, participant_id=participant_id, data=data))
+def _event(
+    t: float, type_: SimEventType, participant_id: str | None, **data
+) -> SimEventFrame:
+    return SimEventFrame(
+        payload=SimEvent(t=t, type=type_, participant_id=participant_id, data=data)
+    )
 
 
 # -- ProcessorRegistry unit tests (no SessionEngine involved) --------------
@@ -71,7 +82,9 @@ def test_processor_with_no_dependents_is_disabled():
         id = "orphan"
         listens_to = frozenset({SimEventType.SPEAKING_START.value})
 
-    registry = ProcessorRegistry([_Orphan(), _Upstream(), _Downstream(), _ConsumingIdentifier()])
+    registry = ProcessorRegistry(
+        [_Orphan(), _Upstream(), _Downstream(), _ConsumingIdentifier()]
+    )
     assert registry.get("orphan").enabled is False
     assert registry.get("upstream").enabled is True
 
@@ -154,10 +167,14 @@ def test_downstream_identifier_reads_upstream_processor_output_via_cache():
         engine = SessionEngine(send=send, registry=registry)
         await engine.handle_frame(
             ContextFrame(
-                payload=SessionContext(candidate_name="Suraj", candidate_email="s@example.com")
+                payload=SessionContext(
+                    candidate_name="Suraj", candidate_email="s@example.com"
+                )
             )
         )
-        await engine.handle_frame(_event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="Suraj"))
+        await engine.handle_frame(
+            _event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="Suraj")
+        )
         await engine.handle_frame(_event(1, SimEventType.SPEAKING_START, "p_a"))
         return engine
 
@@ -165,7 +182,10 @@ def test_downstream_identifier_reads_upstream_processor_output_via_cache():
     assert engine.feature_cache.latest("decode", "p_a").value == {"decoded_for": "p_a"}
     final = messages[-1]
     assert "p_a" in final["evidence"]
-    assert any("saw_decoded_frame" in line or "decode said" in line for line in final["evidence"]["p_a"])
+    assert any(
+        "saw_decoded_frame" in line or "decode said" in line
+        for line in final["evidence"]["p_a"]
+    )
 
 
 def test_identifier_skipped_and_warns_when_dependency_never_ran():
@@ -196,7 +216,9 @@ def test_identifier_skipped_and_warns_when_dependency_never_ran():
 
     async def run():
         engine = SessionEngine(send=send, registry=registry)
-        await engine.handle_frame(_event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="A"))
+        await engine.handle_frame(
+            _event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="A")
+        )
         await engine.handle_frame(_event(1, SimEventType.SPEAKING_START, "p_a"))
         await engine.handle_frame(_event(2, SimEventType.SPEAKING_START, "p_a"))
 
@@ -225,7 +247,9 @@ def test_disabled_processor_never_runs():
 
     async def run():
         engine = SessionEngine(send=send, registry=registry)
-        await engine.handle_frame(_event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="A"))
+        await engine.handle_frame(
+            _event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="A")
+        )
         await engine.handle_frame(_event(1, SimEventType.SPEAKING_START, "p_a"))
 
     asyncio.run(run())

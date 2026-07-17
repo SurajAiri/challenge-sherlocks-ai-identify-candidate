@@ -21,9 +21,15 @@ correlating with the other identifiers: in the reference scenario it
 agrees with speaking_share and disagrees with name_match, which is the
 kind of cross-signal corroboration multi-signal fusion is for.
 """
+
 from __future__ import annotations
 
-from engine.core.identifiers.base import Identifier, IdentifierContext, IdentifierKind, IdentifierRunMode
+from engine.core.identifiers.base import (
+    Identifier,
+    IdentifierContext,
+    IdentifierKind,
+    IdentifierRunMode,
+)
 from engine.core.schemas import SimEvent, SimEventType
 
 
@@ -72,14 +78,21 @@ class QuestionAnsweringPatternIdentifier(Identifier):
                 ),
                 t=event.t,
             )
-        elif self._last_question_by is not None and self._last_question_by != event.participant_id:
+        elif (
+            self._last_question_by is not None
+            and self._last_question_by != event.participant_id
+        ):
             await self.emit(
                 ctx,
                 participant_id=event.participant_id,
                 signal="answered_question",
                 direction="for_candidate",
                 strength=0.45,
-                reasoning="Responded (not with another question) immediately after another participant asked a question - consistent with being the person being interviewed.",
+                reasoning=(
+                    "Responded (not with another question) immediately after another "
+                    "participant asked a question - consistent with being the person "
+                    "being interviewed."
+                ),
                 t=event.t,
             )
 

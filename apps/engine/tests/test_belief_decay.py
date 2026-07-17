@@ -9,6 +9,7 @@ time, a non-decaying (default) identifier staying exactly as sticky as
 before, and recompute_probabilities being safely callable with no new
 evidence (the heartbeat path).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -36,7 +37,9 @@ def test_decay_factor_never_negative_elapsed_edge_case():
     assert decay_factor(elapsed=-5, half_life=30) == 1.0
 
 
-def _evidence(t: float, participant_id: str, identifier_id: str, strength: float = 1.0) -> Evidence:
+def _evidence(
+    t: float, participant_id: str, identifier_id: str, strength: float = 1.0
+) -> Evidence:
     return Evidence(
         identifier_id=identifier_id,
         participant_id=participant_id,
@@ -52,7 +55,11 @@ def test_decaying_identifier_contribution_shrinks_with_elapsed_time_no_new_evide
     repo = ParticipantStateRepository()
     engine = BeliefEngine()
 
-    normalized = normalize(_evidence(t=0, participant_id="p_a", identifier_id="decaying"), 1.0, decay_half_life=10)
+    normalized = normalize(
+        _evidence(t=0, participant_id="p_a", identifier_id="decaying"),
+        1.0,
+        decay_half_life=10,
+    )
     engine.apply(repo, normalized)
     state = repo.participants["p_a"]
     logit_at_t0 = state.logit_candidate
@@ -73,7 +80,11 @@ def test_non_decaying_identifier_contribution_never_shrinks():
     repo = ParticipantStateRepository()
     engine = BeliefEngine()
 
-    normalized = normalize(_evidence(t=0, participant_id="p_a", identifier_id="sticky"), 1.0, decay_half_life=None)
+    normalized = normalize(
+        _evidence(t=0, participant_id="p_a", identifier_id="sticky"),
+        1.0,
+        decay_half_life=None,
+    )
     engine.apply(repo, normalized)
     state = repo.participants["p_a"]
     logit_at_t0 = state.logit_candidate
@@ -89,8 +100,16 @@ def test_two_identifiers_decay_independently():
     repo = ParticipantStateRepository()
     engine = BeliefEngine()
 
-    fast = normalize(_evidence(t=0, participant_id="p_a", identifier_id="fast_decay"), 1.0, decay_half_life=5)
-    slow = normalize(_evidence(t=0, participant_id="p_a", identifier_id="no_decay"), 1.0, decay_half_life=None)
+    fast = normalize(
+        _evidence(t=0, participant_id="p_a", identifier_id="fast_decay"),
+        1.0,
+        decay_half_life=5,
+    )
+    slow = normalize(
+        _evidence(t=0, participant_id="p_a", identifier_id="no_decay"),
+        1.0,
+        decay_half_life=None,
+    )
     engine.apply(repo, fast)
     engine.apply(repo, slow)
     state = repo.participants["p_a"]
@@ -103,10 +122,16 @@ def test_two_identifiers_decay_independently():
 
     # Raw per-identifier buckets are untouched by decay - only the
     # summed, cached logit_candidate reflects the decayed view.
-    assert state.identifier_contributions["fast_decay"].candidate_logit == pytest.approx(fast_contribution)
-    assert state.identifier_contributions["no_decay"].candidate_logit == pytest.approx(slow_contribution)
+    assert state.identifier_contributions[
+        "fast_decay"
+    ].candidate_logit == pytest.approx(fast_contribution)
+    assert state.identifier_contributions["no_decay"].candidate_logit == pytest.approx(
+        slow_contribution
+    )
 
-    expected_total = fast_contribution * decay_factor(25, 5) + slow_contribution * decay_factor(25, None)
+    expected_total = fast_contribution * decay_factor(
+        25, 5
+    ) + slow_contribution * decay_factor(25, None)
     assert state.logit_candidate == pytest.approx(expected_total)
 
 

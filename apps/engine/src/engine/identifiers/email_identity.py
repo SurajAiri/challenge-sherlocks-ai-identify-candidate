@@ -40,6 +40,7 @@ this only ever produces `for_candidate` evidence, never
 (lowercased, stripped) local-part + domain, not fuzzy - an email
 address is not the kind of thing that should partially match.
 """
+
 from __future__ import annotations
 
 import re
@@ -83,7 +84,9 @@ class EmailIdentityIdentifier(Identifier):
             return
         await self._evaluate_from_state(event.participant_id, ctx)
 
-    async def _evaluate_from_state(self, participant_id: str, ctx: IdentifierContext) -> None:
+    async def _evaluate_from_state(
+        self, participant_id: str, ctx: IdentifierContext
+    ) -> None:
         state = ctx.state.get(participant_id)
         session = ctx.state.session_context
         if state is None or session is None or not session.candidate_email:
@@ -103,8 +106,9 @@ class EmailIdentityIdentifier(Identifier):
             direction="for_candidate",
             strength=1.0,
             reasoning=(
-                f"Participant's email '{found}' exactly matches the expected candidate email "
-                f"'{session.candidate_email}' - a strong, hard-to-fake identity signal."
+                f"Participant's email '{found}' exactly matches the expected candidate "
+                f"email '{session.candidate_email}' - a strong, hard-to-fake identity "
+                f"signal."
             ),
             t=ctx.state.current_t,
         )

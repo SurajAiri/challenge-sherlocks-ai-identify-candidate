@@ -23,6 +23,7 @@ Tier is driven by DetectionState, not derived independently - once we
 know who the candidate likely is, expensive identifiers can safely run
 less often; while still searching, we want maximum signal.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -34,7 +35,9 @@ from engine.core.detection_state import DetectionState
 class SchedulingTier(str, Enum):
     AGGRESSIVE = "aggressive"  # SEARCHING - cast the widest net, we know nothing yet
     BALANCED = "balanced"  # LIKELY_CANDIDATE, LOST_CANDIDATE - narrowing/re-checking
-    CONSERVATIVE = "conservative"  # STABLE_CANDIDATE - identity settled, confirm cheaply
+    CONSERVATIVE = (
+        "conservative"  # STABLE_CANDIDATE - identity settled, confirm cheaply
+    )
 
 
 TIER_BY_STATE: dict[DetectionState, SchedulingTier] = {

@@ -16,9 +16,15 @@ identifier that emits confident-looking evidence off two seconds of
 audio is worse than one that stays quiet until it has something real
 to say.
 """
+
 from __future__ import annotations
 
-from engine.core.identifiers.base import Identifier, IdentifierContext, IdentifierKind, IdentifierRunMode
+from engine.core.identifiers.base import (
+    Identifier,
+    IdentifierContext,
+    IdentifierKind,
+    IdentifierRunMode,
+)
 from engine.core.schemas import SimEvent, SimEventType
 
 MIN_TOTAL_SECONDS_BEFORE_SIGNAL = 8.0
@@ -58,7 +64,11 @@ class SpeakingShareIdentifier(Identifier):
         if share >= DOMINANT_SHARE_THRESHOLD:
             # Scale strength by how far above the dominant threshold we
             # are, saturating rather than growing unbounded.
-            strength = min(1.0, (share - DOMINANT_SHARE_THRESHOLD) / (1.0 - DOMINANT_SHARE_THRESHOLD) + 0.3)
+            strength = min(
+                1.0,
+                (share - DOMINANT_SHARE_THRESHOLD) / (1.0 - DOMINANT_SHARE_THRESHOLD)
+                + 0.3,
+            )
             await self.emit(
                 ctx,
                 participant_id=event.participant_id,
@@ -67,7 +77,8 @@ class SpeakingShareIdentifier(Identifier):
                 strength=strength,
                 reasoning=(
                     f"Holds {share:.0%} of total speaking time across {len(present)} "
-                    f"participants ({speaker.total_speaking_seconds:.0f}s), well above an even split."
+                    f"participants ({speaker.total_speaking_seconds:.0f}s), well "
+                    f"above an even split."
                 ),
                 t=event.t,
             )
@@ -79,9 +90,10 @@ class SpeakingShareIdentifier(Identifier):
                 direction="against_candidate",
                 strength=0.3,
                 reasoning=(
-                    f"Only {share:.0%} of total speaking time so far - well below an even "
-                    f"split for {len(present)} participants, more consistent with an "
-                    f"interviewer or silent observer than the person being interviewed."
+                    f"Only {share:.0%} of total speaking time so far - well below "
+                    f"an even split for {len(present)} participants, more consistent "
+                    f"with an interviewer or silent observer than the person being "
+                    f"interviewed."
                 ),
                 t=event.t,
             )

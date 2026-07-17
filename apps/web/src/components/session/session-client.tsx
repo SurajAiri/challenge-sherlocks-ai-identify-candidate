@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 
 import { EnginePanel } from "@/components/session/engine-panel";
@@ -14,14 +14,14 @@ import { TranscriptPanel } from "@/components/session/transcript-panel";
 import { buttonVariants } from "@/components/ui/button";
 import { EngineSocket, getEngineWsUrl } from "@/lib/engine-client";
 import { startSimulatorRun } from "@/lib/simulator-client";
+import { useMounted } from "@/lib/use-mounted";
 import { cn } from "@/lib/utils";
 import { useScenarioLibraryStore } from "@/store/scenario-library-store";
 import { useSessionStore } from "@/store/session-store";
 
 export function SessionClient({ scenarioId }: { scenarioId: string }) {
   const scenario = useScenarioLibraryStore((s) => s.getById(scenarioId));
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
 
   const runStatus = useSessionStore((s) => s.runStatus);
   const runAbort = useSessionStore((s) => s.runAbort);

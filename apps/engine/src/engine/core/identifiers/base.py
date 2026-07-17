@@ -30,12 +30,18 @@ other directly - all coordination happens through Evidence (for
 identification results) or the Feature Cache (for shared computation),
 which keeps each identifier independently pluggable/testable/removable.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
-from engine.core.processor import Processor, ProcessorContext, ProcessorKind, ProcessorRunMode
+from engine.core.processor import (
+    Processor,
+    ProcessorContext,
+    ProcessorKind,
+    ProcessorRunMode,
+)
 from engine.core.schemas import Evidence, EvidenceDirection, SimEvent
 
 # Single-vocabulary axis shared with Processor - see module docstring.
@@ -82,12 +88,12 @@ class Identifier(Processor):
         """Called once, immediately after a participant entity is
         created (before the continuous loop is even running for that
         participant), if run_mode is ONE_TIME or BOTH."""
-        return None
+        return
 
     async def on_event(self, event: SimEvent, ctx: IdentifierContext) -> None:  # type: ignore[override]
         """Called for every event whose type is in `listens_to`, if
         run_mode is CONTINUOUS or BOTH."""
-        return None
+        return
 
     # -- convenience for subclasses --------------------------------------
 

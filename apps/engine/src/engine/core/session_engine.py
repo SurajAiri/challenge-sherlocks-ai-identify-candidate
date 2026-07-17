@@ -32,6 +32,7 @@ the Scheduler (opt-in per-tier throttling, unchanged from before), and
 in the Feature Cache, or this call is skipped and logged - see
 FeatureCache.satisfied for exactly what "something" means).
 """
+
 from __future__ import annotations
 
 import logging
@@ -42,9 +43,13 @@ from engine.core.event_bus import EventBus
 from engine.core.evidence_normalizer import normalize
 from engine.core.feature_cache import FeatureCache
 from engine.core.identifiers.base import Identifier, IdentifierContext
-from engine.core.processor import Processor, ProcessorContext, clamp_cache_ttl_iterations
-from engine.core.registry import ProcessorRegistry, default_registry
 from engine.core.output_formatter import format_message
+from engine.core.processor import (
+    Processor,
+    ProcessorContext,
+    clamp_cache_ttl_iterations,
+)
+from engine.core.registry import ProcessorRegistry, default_registry
 from engine.core.scheduler import Scheduler
 from engine.core.schemas import (
     ContextFrame,
@@ -107,7 +112,9 @@ class SessionEngine:
         not this method's.
         """
         all_event_types = {
-            event_type for processor in self.registry.processors for event_type in processor.listens_to
+            event_type
+            for processor in self.registry.processors
+            for event_type in processor.listens_to
         }
         for event_type in all_event_types:
             for processor in self.registry.continuous_for_event_type(event_type):
@@ -134,7 +141,9 @@ class SessionEngine:
                 cache=self.feature_cache.read_only_view(),
                 emit=self._publish_evidence,
             )
-        return ProcessorContext(state=self.store.read_only_view(), cache=self.feature_cache.read_only_view())
+        return ProcessorContext(
+            state=self.store.read_only_view(), cache=self.feature_cache.read_only_view()
+        )
 
     async def _run_hook(
         self,
@@ -207,8 +216,12 @@ class SessionEngine:
 
     async def _consume_evidence(self, evidence: Evidence) -> None:
         processor = self.registry.get(evidence.identifier_id)
-        identifier_weight = processor.weight if isinstance(processor, Identifier) else 1.0
-        decay_half_life = processor.decay_half_life if isinstance(processor, Identifier) else None
+        identifier_weight = (
+            processor.weight if isinstance(processor, Identifier) else 1.0
+        )
+        decay_half_life = (
+            processor.decay_half_life if isinstance(processor, Identifier) else None
+        )
         normalized = normalize(evidence, identifier_weight, decay_half_life)
         self.belief_engine.apply(self.store, normalized)
         # Belief just moved -> re-derive detection state -> re-derive

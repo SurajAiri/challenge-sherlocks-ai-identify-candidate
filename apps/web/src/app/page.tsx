@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import { AddScenarioDialog } from "@/components/library/add-scenario-dialog";
 import { EmptyState } from "@/components/library/empty-state";
 import { ScenarioCard } from "@/components/library/scenario-card";
 import { Logo } from "@/components/logo";
+import { useMounted } from "@/lib/use-mounted";
 import { useScenarioLibraryStore } from "@/store/scenario-library-store";
 
 export default function LibraryPage() {
@@ -14,8 +13,7 @@ export default function LibraryPage() {
   // zustand's persist() rehydrates from localStorage after first paint -
   // rendering the list before that would mismatch SSR output, so hold
   // off on real content for a tick.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-10">

@@ -13,6 +13,7 @@ which is enough to exercise the full input -> identifiers -> evidence
 
 Run with: `uv run pytest` from `apps/engine/`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,8 +21,14 @@ import asyncio
 import pytest
 
 from engine.core.detection_state import DetectionState
-from engine.core.identifiers.base import Identifier, IdentifierContext, IdentifierKind, IdentifierRunMode
+from engine.core.identifiers.base import (
+    Identifier,
+    IdentifierContext,
+    IdentifierKind,
+    IdentifierRunMode,
+)
 from engine.core.identifiers.registry import IdentifierRegistry
+from engine.core.scheduler import SchedulingTier
 from engine.core.schemas import (
     ContextFrame,
     SessionContext,
@@ -29,12 +36,15 @@ from engine.core.schemas import (
     SimEventFrame,
     SimEventType,
 )
-from engine.core.scheduler import SchedulingTier
 from engine.core.session_engine import SessionEngine
 
 
-def _event(t: float, type_: SimEventType, participant_id: str | None, **data) -> SimEventFrame:
-    return SimEventFrame(payload=SimEvent(t=t, type=type_, participant_id=participant_id, data=data))
+def _event(
+    t: float, type_: SimEventType, participant_id: str | None, **data
+) -> SimEventFrame:
+    return SimEventFrame(
+        payload=SimEvent(t=t, type=type_, participant_id=participant_id, data=data)
+    )
 
 
 async def _run_demo_clean_shaped_scenario() -> dict:
@@ -51,8 +61,14 @@ async def _run_demo_clean_shaped_scenario() -> dict:
                 candidate_name="Suraj Thapa",
                 candidate_email="suraj.thapa@example.com",
                 interviewer_names=["Alex Rivera", "Jordan Lee"],
-                calendar_invite={"organizer": "Alex Rivera", "title": "Backend Engineer Interview - Suraj Thapa"},
-                interview_schedule={"start": "2026-07-12T10:00:00", "duration_minutes": 30},
+                calendar_invite={
+                    "organizer": "Alex Rivera",
+                    "title": "Backend Engineer Interview - Suraj Thapa",
+                },
+                interview_schedule={
+                    "start": "2026-07-12T10:00:00",
+                    "duration_minutes": 30,
+                },
             )
         ),
         _event(0, SimEventType.PARTICIPANT_JOIN, "p_alex", display_name="Alex Rivera"),
@@ -61,29 +77,67 @@ async def _run_demo_clean_shaped_scenario() -> dict:
         _event(0, SimEventType.PARTICIPANT_JOIN, "p_obs", display_name="iPhone"),
         # Alex asks the opening question.
         _event(2, SimEventType.SPEAKING_START, "p_alex"),
-        _event(10, SimEventType.TRANSCRIPT_SEGMENT, "p_alex", text="Can you start by walking us through your background?"),
+        _event(
+            10,
+            SimEventType.TRANSCRIPT_SEGMENT,
+            "p_alex",
+            text="Can you start by walking us through your background?",
+        ),
         _event(10, SimEventType.SPEAKING_END, "p_alex"),
         # Candidate answers at length.
         _event(11, SimEventType.SPEAKING_START, "p_mbp"),
-        _event(35, SimEventType.TRANSCRIPT_SEGMENT, "p_mbp", text="Sure. I've spent the last four years building backend systems, mostly in Python and Go."),
+        _event(
+            35,
+            SimEventType.TRANSCRIPT_SEGMENT,
+            "p_mbp",
+            text=(
+                "Sure. I've spent the last four years building backend systems, "
+                "mostly in Python and Go."
+            ),
+        ),
         _event(35, SimEventType.SPEAKING_END, "p_mbp"),
         # Jordan asks a follow-up and requests a screenshare.
         _event(36, SimEventType.SPEAKING_START, "p_jordan"),
-        _event(44, SimEventType.TRANSCRIPT_SEGMENT, "p_jordan", text="Great. Can you share your screen and walk us through your approach?"),
+        _event(
+            44,
+            SimEventType.TRANSCRIPT_SEGMENT,
+            "p_jordan",
+            text="Great. Can you share your screen and walk us through your approach?",
+        ),
         _event(44, SimEventType.SPEAKING_END, "p_jordan"),
         _event(45, SimEventType.SCREENSHARE_START, "p_mbp"),
         _event(46, SimEventType.SPEAKING_START, "p_mbp"),
-        _event(70, SimEventType.TRANSCRIPT_SEGMENT, "p_mbp", text="I'll start with a brute force approach, then optimize."),
+        _event(
+            70,
+            SimEventType.TRANSCRIPT_SEGMENT,
+            "p_mbp",
+            text="I'll start with a brute force approach, then optimize.",
+        ),
         _event(70, SimEventType.SPEAKING_END, "p_mbp"),
         _event(71, SimEventType.SCREENSHARE_END, "p_mbp"),
         # Closing exchange, candidate finally states their real name.
         _event(72, SimEventType.SPEAKING_START, "p_alex"),
-        _event(80, SimEventType.TRANSCRIPT_SEGMENT, "p_alex", text="Anything you'd like to ask us before we wrap up?"),
+        _event(
+            80,
+            SimEventType.TRANSCRIPT_SEGMENT,
+            "p_alex",
+            text="Anything you'd like to ask us before we wrap up?",
+        ),
         _event(80, SimEventType.SPEAKING_END, "p_alex"),
         _event(81, SimEventType.SPEAKING_START, "p_mbp"),
-        _event(92, SimEventType.TRANSCRIPT_SEGMENT, "p_mbp", text="Not right now, thank you. Oh, I'm Suraj by the way, sorry, I didn't introduce myself."),
+        _event(
+            92,
+            SimEventType.TRANSCRIPT_SEGMENT,
+            "p_mbp",
+            text=(
+                "Not right now, thank you. Oh, I'm Suraj by the way, sorry, "
+                "I didn't introduce myself."
+            ),
+        ),
         _event(92, SimEventType.SPEAKING_END, "p_mbp"),
-        _event(93, SimEventType.PARTICIPANT_UPDATE, "p_mbp", display_name="Suraj Thapa"),
+        _event(
+            93, SimEventType.PARTICIPANT_UPDATE, "p_mbp", display_name="Suraj Thapa"
+        ),
     ]
 
     for frame in frames:
@@ -126,8 +180,12 @@ def test_no_confident_guess_before_any_evidence():
 
     async def run():
         engine = SessionEngine(send=send)
-        await engine.handle_frame(_event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="Someone"))
-        await engine.handle_frame(_event(0, SimEventType.PARTICIPANT_JOIN, "p_b", display_name="Someone Else"))
+        await engine.handle_frame(
+            _event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="Someone")
+        )
+        await engine.handle_frame(
+            _event(0, SimEventType.PARTICIPANT_JOIN, "p_b", display_name="Someone Else")
+        )
 
     asyncio.run(run())
     latest = send.messages[-1]  # type: ignore[attr-defined]
@@ -161,9 +219,15 @@ def test_one_time_identifier_is_never_invoked_off_the_continuous_bus():
     async def run():
         registry = IdentifierRegistry([OneTimeOnlyIdentifier()])
         engine = SessionEngine(send=send, registry=registry)
-        await engine.handle_frame(_event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="A"))
-        await engine.handle_frame(_event(1, SimEventType.PARTICIPANT_UPDATE, "p_a", display_name="A2"))
-        await engine.handle_frame(_event(2, SimEventType.PARTICIPANT_UPDATE, "p_a", display_name="A3"))
+        await engine.handle_frame(
+            _event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="A")
+        )
+        await engine.handle_frame(
+            _event(1, SimEventType.PARTICIPANT_UPDATE, "p_a", display_name="A2")
+        )
+        await engine.handle_frame(
+            _event(2, SimEventType.PARTICIPANT_UPDATE, "p_a", display_name="A3")
+        )
 
     asyncio.run(run())
     assert calls == {"on_join": 1, "on_event": 0}
@@ -218,7 +282,9 @@ def test_scheduler_throttles_opted_in_identifier_but_not_others():
     async def run():
         registry = IdentifierRegistry([ThrottledIdentifier(), UnthrottledIdentifier()])
         engine = SessionEngine(send=send, registry=registry)
-        await engine.handle_frame(_event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="A"))
+        await engine.handle_frame(
+            _event(0, SimEventType.PARTICIPANT_JOIN, "p_a", display_name="A")
+        )
         # Three SPEAKING_START events, well within the throttled
         # identifier's declared interval of each other.
         await engine.handle_frame(_event(1, SimEventType.SPEAKING_START, "p_a"))

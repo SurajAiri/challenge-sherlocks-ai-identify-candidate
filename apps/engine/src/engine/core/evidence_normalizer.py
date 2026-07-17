@@ -19,6 +19,7 @@ evidence just adds/subtracts from a running total, order doesn't
 matter, and confidence saturates gracefully near 0/1 instead of
 overshooting.
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -40,7 +41,9 @@ CROSS_TRACK_DAMPING = 0.35
 
 
 def normalize(
-    evidence: Evidence, identifier_weight: float, decay_half_life: Optional[float] = None
+    evidence: Evidence,
+    identifier_weight: float,
+    decay_half_life: Optional[float] = None,
 ) -> NormalizedEvidence:
     weight = max(0.0, identifier_weight)
     magnitude = weight * evidence.strength * BASE_LOGIT_SCALE

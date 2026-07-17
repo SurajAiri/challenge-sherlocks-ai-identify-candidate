@@ -32,6 +32,7 @@ Runs BOTH one_time (at join) and continuous (on participant_update) -
 identical trigger shape to `name_match`, since a name can become
 informative (or newly misleading) at any point in the call.
 """
+
 from __future__ import annotations
 
 from typing import Literal, Optional
@@ -52,9 +53,13 @@ WEIGHT = 0.75
 
 class NameRoleVerdict(BaseModel):
     verdict: Literal["candidate", "interviewer", "unclear"] = Field(
-        description="Best guess at whose display name this is, given the session context."
+        description=(
+            "Best guess at whose display name this is, given the session context."
+        )
     )
-    confidence: float = Field(ge=0.0, le=1.0, description="0..1 confidence in this verdict.")
+    confidence: float = Field(
+        ge=0.0, le=1.0, description="0..1 confidence in this verdict."
+    )
     reasoning: str = Field(description="One short sentence explaining the verdict.")
 
 
@@ -101,7 +106,9 @@ class LLMNameRoleIdentifier(Identifier):
         state = ctx.state.get(participant_id)
         if state is None or not state.display_name:
             return
-        await self._evaluate(participant_id, state.display_name, state.joined_at or 0.0, ctx)
+        await self._evaluate(
+            participant_id, state.display_name, state.joined_at or 0.0, ctx
+        )
 
     async def on_event(self, event: SimEvent, ctx: IdentifierContext) -> None:
         if event.participant_id is None:
@@ -111,7 +118,9 @@ class LLMNameRoleIdentifier(Identifier):
             return
         await self._evaluate(event.participant_id, name, event.t, ctx)
 
-    async def _evaluate(self, participant_id: str, display_name: str, t: float, ctx: IdentifierContext) -> None:
+    async def _evaluate(
+        self, participant_id: str, display_name: str, t: float, ctx: IdentifierContext
+    ) -> None:
         session = ctx.state.session_context
         if session is None:
             return
@@ -140,8 +149,9 @@ class LLMNameRoleIdentifier(Identifier):
                 direction="for_candidate",
                 strength=verdict.confidence,
                 reasoning=(
-                    f"LLM name assessment: display name '{display_name}' plausibly the candidate "
-                    f"({verdict.confidence:.2f} confidence) - {verdict.reasoning}"
+                    f"LLM name assessment: display name '{display_name}' plausibly "
+                    f"the candidate ({verdict.confidence:.2f} confidence) - "
+                    f"{verdict.reasoning}"
                 ),
                 t=t,
             )
@@ -153,8 +163,9 @@ class LLMNameRoleIdentifier(Identifier):
                 direction="against_candidate",
                 strength=verdict.confidence,
                 reasoning=(
-                    f"LLM name assessment: display name '{display_name}' plausibly an interviewer "
-                    f"({verdict.confidence:.2f} confidence) - {verdict.reasoning}"
+                    f"LLM name assessment: display name '{display_name}' plausibly "
+                    f"an interviewer ({verdict.confidence:.2f} confidence) - "
+                    f"{verdict.reasoning}"
                 ),
                 t=t,
             )

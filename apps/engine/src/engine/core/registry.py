@@ -28,6 +28,7 @@ list plus each entry's own `depends_on` into:
      later would silently go dead the moment something above it in
      the chain is what actually gets depended on.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict, deque
@@ -86,7 +87,9 @@ class ProcessorRegistry:
         (plus WILDCARD subscribers), in dependency order - a processor
         never appears before something it (directly or transitively)
         depends on that's also in this list."""
-        candidates = self._by_event_type.get(event_type, []) + self._by_event_type.get(WILDCARD, [])
+        candidates = self._by_event_type.get(event_type, []) + self._by_event_type.get(
+            WILDCARD, []
+        )
         seen: set[str] = set()
         deduped: list[Processor] = []
         for processor in candidates:
@@ -95,13 +98,21 @@ class ProcessorRegistry:
             seen.add(processor.id)
             deduped.append(processor)
         deduped.sort(key=lambda p: self._layer_index[p.id])
-        return [p for p in deduped if p.run_mode in (ProcessorRunMode.CONTINUOUS, ProcessorRunMode.BOTH)]
+        return [
+            p
+            for p in deduped
+            if p.run_mode in (ProcessorRunMode.CONTINUOUS, ProcessorRunMode.BOTH)
+        ]
 
     def one_time(self) -> list[Processor]:
         """Every ONE_TIME/BOTH processor, in dependency order - same
         reasoning as `continuous_for_event_type`, applied to the
         "Initial One Time Run" step instead of the event bus."""
-        candidates = [p for p in self.processors if p.run_mode in (ProcessorRunMode.ONE_TIME, ProcessorRunMode.BOTH)]
+        candidates = [
+            p
+            for p in self.processors
+            if p.run_mode in (ProcessorRunMode.ONE_TIME, ProcessorRunMode.BOTH)
+        ]
         return sorted(candidates, key=lambda p: self._layer_index[p.id])
 
     # -- build-time graph analysis ------------------------------------------
@@ -144,7 +155,9 @@ class ProcessorRegistry:
 
         if processed != len(self.processors):
             stuck = sorted(pid for pid, deg in remaining.items() if deg > 0)
-            raise DependencyCycleError(f"circular depends_on among processors: {stuck!r}")
+            raise DependencyCycleError(
+                f"circular depends_on among processors: {stuck!r}"
+            )
         return layer
 
     def _compute_enabled(self) -> None:
@@ -154,7 +167,9 @@ class ProcessorRegistry:
         everything reachable as enabled too. This is reachability, not
         "listed as a direct dependent of an Identifier" - see module
         docstring point 3."""
-        enabled_ids: set[str] = {p.id for p in self.processors if isinstance(p, Identifier)}
+        enabled_ids: set[str] = {
+            p.id for p in self.processors if isinstance(p, Identifier)
+        }
         queue: deque[str] = deque(enabled_ids)
         while queue:
             pid = queue.popleft()

@@ -31,6 +31,7 @@ means:
 Nothing here is Sherlock-specific beyond the env var names - this
 could be lifted out to its own package if a second engine needed it.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -61,12 +62,16 @@ def _model_name() -> str:
 
 def _timeout_seconds() -> float:
     try:
-        return float(os.environ.get("LLM_REQUEST_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
+        return float(
+            os.environ.get("LLM_REQUEST_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
+        )
     except ValueError:
         return DEFAULT_TIMEOUT_SECONDS
 
 
-def _cache_key(model: str, system_prompt: str, user_prompt: str, schema: Type[BaseModel]) -> str:
+def _cache_key(
+    model: str, system_prompt: str, user_prompt: str, schema: Type[BaseModel]
+) -> str:
     h = hashlib.sha256()
     h.update(model.encode())
     h.update(b"\0")
@@ -96,13 +101,14 @@ async def structured_completion(
     cache_key = _cache_key(model, system_prompt, user_prompt, schema)
 
     if use_cache and cache_key in _response_cache:
-        cached = _response_cache[cache_key]
-        return cached  # type: ignore[return-value]
+        return _response_cache[cache_key]  # type: ignore[return-value]
 
     try:
         import litellm
     except ImportError:
-        logger.warning("litellm not installed; skipping LLM call for schema=%s", schema.__name__)
+        logger.warning(
+            "litellm not installed; skipping LLM call for schema=%s", schema.__name__
+        )
         return None
 
     try:
@@ -117,7 +123,12 @@ async def structured_completion(
             temperature=0.0,
         )
     except Exception:
-        logger.warning("LLM call failed for schema=%s (model=%s)", schema.__name__, model, exc_info=True)
+        logger.warning(
+            "LLM call failed for schema=%s (model=%s)",
+            schema.__name__,
+            model,
+            exc_info=True,
+        )
         if use_cache:
             _response_cache[cache_key] = None
         return None

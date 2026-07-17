@@ -24,6 +24,7 @@ produced anything" is the only distinguishable "not ready" case, and
 it's treated uniformly: log a warning, skip the consumer for this
 tick (see SessionEngine._run_hook). No silent cold-start special case.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict, deque
@@ -47,7 +48,14 @@ class FeatureCache:
         self._buffers: dict[tuple[str, Optional[str]], deque[FeatureCacheEntry]] = {}
         self._run_counts: dict[tuple[str, Optional[str]], int] = defaultdict(int)
 
-    def record(self, processor_id: str, participant_id: Optional[str], value: Any, t: float, maxlen: int) -> None:
+    def record(
+        self,
+        processor_id: str,
+        participant_id: Optional[str],
+        value: Any,
+        t: float,
+        maxlen: int,
+    ) -> None:
         key = (processor_id, participant_id)
         buf = self._buffers.get(key)
         if buf is None or buf.maxlen != maxlen:
@@ -61,21 +69,29 @@ class FeatureCache:
         self._run_counts[key] += 1
         buf.append(FeatureCacheEntry(value=value, t=t, run_index=self._run_counts[key]))
 
-    def latest(self, processor_id: str, participant_id: Optional[str] = None) -> Optional[FeatureCacheEntry]:
+    def latest(
+        self, processor_id: str, participant_id: Optional[str] = None
+    ) -> Optional[FeatureCacheEntry]:
         buf = self._resolve(processor_id, participant_id)
         return buf[-1] if buf else None
 
-    def window(self, processor_id: str, participant_id: Optional[str] = None) -> list[FeatureCacheEntry]:
+    def window(
+        self, processor_id: str, participant_id: Optional[str] = None
+    ) -> list[FeatureCacheEntry]:
         buf = self._resolve(processor_id, participant_id)
         return list(buf) if buf else []
 
-    def satisfied(self, processor_id: str, participant_id: Optional[str] = None) -> bool:
+    def satisfied(
+        self, processor_id: str, participant_id: Optional[str] = None
+    ) -> bool:
         return bool(self._resolve(processor_id, participant_id))
 
     def read_only_view(self) -> "FeatureCacheReadView":
         return FeatureCacheReadView(self)
 
-    def _resolve(self, processor_id: str, participant_id: Optional[str]) -> Optional[deque]:
+    def _resolve(
+        self, processor_id: str, participant_id: Optional[str]
+    ) -> Optional[deque]:
         """Participant-scoped lookup first; falls back to the
         session-scoped (None) key so a participant-scoped consumer can
         depend on a session-scoped processor (e.g. a shared decode)
@@ -97,11 +113,17 @@ class FeatureCacheReadView:
     def __init__(self, cache: FeatureCache) -> None:
         self._cache = cache
 
-    def latest(self, processor_id: str, participant_id: Optional[str] = None) -> Optional[FeatureCacheEntry]:
+    def latest(
+        self, processor_id: str, participant_id: Optional[str] = None
+    ) -> Optional[FeatureCacheEntry]:
         return self._cache.latest(processor_id, participant_id)
 
-    def window(self, processor_id: str, participant_id: Optional[str] = None) -> list[FeatureCacheEntry]:
+    def window(
+        self, processor_id: str, participant_id: Optional[str] = None
+    ) -> list[FeatureCacheEntry]:
         return self._cache.window(processor_id, participant_id)
 
-    def satisfied(self, processor_id: str, participant_id: Optional[str] = None) -> bool:
+    def satisfied(
+        self, processor_id: str, participant_id: Optional[str] = None
+    ) -> bool:
         return self._cache.satisfied(processor_id, participant_id)

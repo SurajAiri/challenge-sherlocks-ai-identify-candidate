@@ -18,11 +18,17 @@ Runs BOTH one_time (at join, when we first see a name) and continuous
 a name can become informative at any point in the call, not just at
 the start.
 """
+
 from __future__ import annotations
 
 from difflib import SequenceMatcher
 
-from engine.core.identifiers.base import Identifier, IdentifierContext, IdentifierKind, IdentifierRunMode
+from engine.core.identifiers.base import (
+    Identifier,
+    IdentifierContext,
+    IdentifierKind,
+    IdentifierRunMode,
+)
 from engine.core.schemas import SimEvent, SimEventType
 
 # Below this similarity ratio we don't treat it as a match at all -
@@ -56,7 +62,9 @@ class NameMatchIdentifier(Identifier):
         state = ctx.state.get(participant_id)
         if state is None or not state.display_name:
             return
-        await self._evaluate(participant_id, state.display_name, state.joined_at or 0.0, ctx)
+        await self._evaluate(
+            participant_id, state.display_name, state.joined_at or 0.0, ctx
+        )
 
     async def on_event(self, event: SimEvent, ctx: IdentifierContext) -> None:
         if event.participant_id is None:
@@ -66,7 +74,9 @@ class NameMatchIdentifier(Identifier):
             return
         await self._evaluate(event.participant_id, name, event.t, ctx)
 
-    async def _evaluate(self, participant_id: str, display_name: str, t: float, ctx: IdentifierContext) -> None:
+    async def _evaluate(
+        self, participant_id: str, display_name: str, t: float, ctx: IdentifierContext
+    ) -> None:
         session = ctx.state.session_context
         if session is None:
             return
@@ -80,8 +90,9 @@ class NameMatchIdentifier(Identifier):
                 direction="for_candidate",
                 strength=candidate_sim * CANDIDATE_MATCH_STRENGTH_SCALE,
                 reasoning=(
-                    f"Display name '{display_name}' closely matches the expected candidate "
-                    f"name '{session.candidate_name}' (similarity {candidate_sim:.2f})."
+                    f"Display name '{display_name}' closely matches the expected "
+                    f"candidate name '{session.candidate_name}' "
+                    f"(similarity {candidate_sim:.2f})."
                 ),
                 t=t,
             )
@@ -102,8 +113,9 @@ class NameMatchIdentifier(Identifier):
                 direction="against_candidate",
                 strength=best_interviewer_sim * INTERVIEWER_MATCH_STRENGTH_SCALE,
                 reasoning=(
-                    f"Display name '{display_name}' closely matches known interviewer "
-                    f"'{best_interviewer_name}' (similarity {best_interviewer_sim:.2f})."
+                    f"Display name '{display_name}' closely matches known "
+                    f"interviewer '{best_interviewer_name}' "
+                    f"(similarity {best_interviewer_sim:.2f})."
                 ),
                 t=t,
             )

@@ -24,6 +24,7 @@ Notes carried over from the architecture doc:
     repeatedly as new events arrive). Both axes are represented on the
     Identifier itself (see core/identifiers/base.py), not here.
 """
+
 from __future__ import annotations
 
 import time
@@ -142,7 +143,9 @@ class ParticipantState:
     # Source of truth: one raw, undecayed sub-total per identifier that
     # has contributed evidence for this participant (see
     # IdentifierContribution above).
-    identifier_contributions: dict[str, IdentifierContribution] = field(default_factory=dict)
+    identifier_contributions: dict[str, IdentifierContribution] = field(
+        default_factory=dict
+    )
     # Cached, derived from identifier_contributions as of the last
     # recompute (decayed sum, clamped) - read these for "what does the
     # engine currently believe," don't read identifier_contributions
@@ -205,7 +208,9 @@ class ParticipantStateRepository:
     def set_context(self, context: SessionContext) -> None:
         self.session_context = context
 
-    def get_or_create(self, participant_id: str, t: float) -> tuple[ParticipantState, bool]:
+    def get_or_create(
+        self, participant_id: str, t: float
+    ) -> tuple[ParticipantState, bool]:
         """Returns (state, is_new). `is_new=True` is the trigger for
         the "Initial One Time Run" identifiers upstream."""
         existing = self.participants.get(participant_id)
@@ -265,15 +270,21 @@ class ParticipantStateRepository:
                 state.speaking_turns += 1
             case SimEventType.SPEAKING_END:
                 if state.speaking_started_at is not None:
-                    state.total_speaking_seconds += max(0.0, event.t - state.speaking_started_at)
+                    state.total_speaking_seconds += max(
+                        0.0, event.t - state.speaking_started_at
+                    )
                 state.speaking_now = False
                 state.speaking_started_at = None
             case SimEventType.TRANSCRIPT_SEGMENT:
                 text = event.data.get("text")
                 if isinstance(text, str) and text:
-                    state.transcript_segments.append(TranscriptSegment(t=event.t, text=text))
+                    state.transcript_segments.append(
+                        TranscriptSegment(t=event.t, text=text)
+                    )
                     if len(state.transcript_segments) > MAX_TRANSCRIPT_SEGMENTS:
-                        state.transcript_segments = state.transcript_segments[-MAX_TRANSCRIPT_SEGMENTS:]
+                        state.transcript_segments = state.transcript_segments[
+                            -MAX_TRANSCRIPT_SEGMENTS:
+                        ]
                     state.total_transcript_chars += len(text)
                     state.total_transcript_words += len(text.split())
             case SimEventType.AUDIO_STREAM_ON:

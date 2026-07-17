@@ -12,6 +12,7 @@ directly with just a list of Identifiers, e.g.
 a list of only Identifiers is a valid (degenerate, all-layer-0 unless
 they cross-depend) ProcessorRegistry.
 """
+
 from __future__ import annotations
 
 from engine.core.registry import ProcessorRegistry, default_registry

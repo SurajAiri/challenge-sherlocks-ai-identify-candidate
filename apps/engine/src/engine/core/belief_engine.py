@@ -54,13 +54,18 @@ through a recompute either way, so hooking both call sites is what
 makes decay show up promptly on fresh evidence AND drift visibly
 during silence, without a third timer of its own.
 """
+
 from __future__ import annotations
 
 import math
 
 from engine.core.detection_state import DetectionState, DetectionStateTracker
 from engine.core.schemas import NormalizedEvidence
-from engine.core.state_store import IdentifierContribution, ParticipantState, ParticipantStateRepository
+from engine.core.state_store import (
+    IdentifierContribution,
+    ParticipantState,
+    ParticipantStateRepository,
+)
 
 # Clamp accumulated logits so one long session with lots of one-sided
 # evidence can't overflow math.exp or make old evidence irreversible -
@@ -116,10 +121,13 @@ class BeliefEngine:
         # in the same place/cadence as probabilities themselves.
         self.detection_state = DetectionStateTracker()
 
-    def apply(self, repository: ParticipantStateRepository, normalized: NormalizedEvidence) -> None:
+    def apply(
+        self, repository: ParticipantStateRepository, normalized: NormalizedEvidence
+    ) -> None:
         pid = normalized.evidence.participant_id
         if pid is None:
-            return  # context-level evidence with no target participant; nothing to update yet
+            # context-level evidence with no target participant; nothing to update yet
+            return
         state, _ = repository.get_or_create(pid, normalized.evidence.t)
 
         identifier_id = normalized.evidence.identifier_id
@@ -129,10 +137,18 @@ class BeliefEngine:
             state.identifier_contributions[identifier_id] = contribution
 
         contribution.candidate_logit = max(
-            -LOGIT_CLAMP, min(LOGIT_CLAMP, contribution.candidate_logit + normalized.delta_candidate_logit)
+            -LOGIT_CLAMP,
+            min(
+                LOGIT_CLAMP,
+                contribution.candidate_logit + normalized.delta_candidate_logit,
+            ),
         )
         contribution.not_candidate_logit = max(
-            -LOGIT_CLAMP, min(LOGIT_CLAMP, contribution.not_candidate_logit + normalized.delta_not_candidate_logit)
+            -LOGIT_CLAMP,
+            min(
+                LOGIT_CLAMP,
+                contribution.not_candidate_logit + normalized.delta_not_candidate_logit,
+            ),
         )
         contribution.last_touched_t = normalized.evidence.t
         # An identifier's decay_half_life is a static class attribute
@@ -170,7 +186,9 @@ class BeliefEngine:
                 not_candidate_total += contribution.not_candidate_logit * factor
 
             state.logit_candidate = max(-LOGIT_CLAMP, min(LOGIT_CLAMP, candidate_total))
-            state.logit_not_candidate = max(-LOGIT_CLAMP, min(LOGIT_CLAMP, not_candidate_total))
+            state.logit_not_candidate = max(
+                -LOGIT_CLAMP, min(LOGIT_CLAMP, not_candidate_total)
+            )
             candidate_logits[pid] = state.logit_candidate
 
         probs = softmax(candidate_logits)

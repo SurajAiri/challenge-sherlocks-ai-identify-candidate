@@ -42,6 +42,7 @@ first 5 minutes who then starts actively answering questions should
 have their earlier silent-observer evidence fade rather than
 permanently anchor them as "probably not the candidate".
 """
+
 from __future__ import annotations
 
 from engine.core.identifiers.base import (
@@ -92,7 +93,10 @@ class SilentObserverIdentifier(Identifier):
                 continue
 
             last_emitted = self._last_emitted_t.get(state.participant_id)
-            if last_emitted is not None and (now_t - last_emitted) < MIN_RECHECK_INTERVAL_SECONDS:
+            if (
+                last_emitted is not None
+                and (now_t - last_emitted) < MIN_RECHECK_INTERVAL_SECONDS
+            ):
                 continue
 
             has_ever_participated = (
@@ -115,9 +119,9 @@ class SilentObserverIdentifier(Identifier):
                 direction="against_candidate",
                 strength=strength,
                 reasoning=(
-                    f"Present for {elapsed:.0f}s with no speaking, no webcam, no screenshare, "
-                    "and no transcript content - consistent with a silent observer rather than "
-                    "the person being interviewed."
+                    f"Present for {elapsed:.0f}s with no speaking, no webcam, no "
+                    "screenshare, and no transcript content - consistent with a "
+                    "silent observer rather than the person being interviewed."
                 ),
                 t=now_t,
             )

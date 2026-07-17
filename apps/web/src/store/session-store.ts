@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { base64ToBytes, concatBytes, pcmToWavBlob } from "@/lib/audio";
 import { makeId } from "@/lib/id";
-import type { EngineMessage, SessionContext, SimEvent, SimFrame, StreamFrame } from "@/lib/types";
+import type { SessionContext, SimEvent, SimFrame, StreamFrame } from "@/lib/types";
 import type { EngineStatus } from "@/lib/engine-client";
 
 const MAX_LOG_ENTRIES = 500;

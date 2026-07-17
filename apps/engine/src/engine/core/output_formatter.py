@@ -21,6 +21,7 @@ a single guess whenever evidence is thin, three states are possible:
 into `possible_candidate_ids` - explainability matters for whoever is
 actually being named, not for every participant on every message.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
@@ -65,7 +66,8 @@ def _select_possible_candidates(participants: list[ParticipantState]) -> list[st
 
     # Everyone within AMBIGUITY_MARGIN of the leader is "in contention".
     band = [
-        p for p in participants
+        p
+        for p in participants
         if top.probability_candidate - p.probability_candidate <= AMBIGUITY_MARGIN
     ]
 

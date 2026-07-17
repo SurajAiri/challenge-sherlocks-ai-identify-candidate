@@ -30,6 +30,7 @@ Runs BOTH (join + participant_update), same trigger shape as the other
 name-based identifiers - the organizer could reveal their real name
 after joining under a nickname too.
 """
+
 from __future__ import annotations
 
 from difflib import SequenceMatcher
@@ -67,7 +68,9 @@ class HostOrganizerExclusionIdentifier(Identifier):
         state = ctx.state.get(participant_id)
         if state is None or not state.display_name:
             return
-        await self._evaluate(participant_id, state.display_name, state.joined_at or 0.0, ctx)
+        await self._evaluate(
+            participant_id, state.display_name, state.joined_at or 0.0, ctx
+        )
 
     async def on_event(self, event: SimEvent, ctx: IdentifierContext) -> None:
         if event.participant_id is None:
@@ -77,7 +80,9 @@ class HostOrganizerExclusionIdentifier(Identifier):
             return
         await self._evaluate(event.participant_id, name, event.t, ctx)
 
-    async def _evaluate(self, participant_id: str, display_name: str, t: float, ctx: IdentifierContext) -> None:
+    async def _evaluate(
+        self, participant_id: str, display_name: str, t: float, ctx: IdentifierContext
+    ) -> None:
         session = ctx.state.session_context
         if session is None:
             return
@@ -97,9 +102,9 @@ class HostOrganizerExclusionIdentifier(Identifier):
             direction="against_candidate",
             strength=sim * MATCH_STRENGTH_SCALE,
             reasoning=(
-                f"Display name '{display_name}' matches the calendar invite's organizer "
-                f"'{organizer}' (similarity {sim:.2f}) - meeting organizers are essentially "
-                "never the candidate being interviewed."
+                f"Display name '{display_name}' matches the calendar invite's "
+                f"organizer '{organizer}' (similarity {sim:.2f}) - meeting organizers "
+                f"are essentially never the candidate being interviewed."
             ),
             t=t,
         )

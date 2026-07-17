@@ -43,6 +43,7 @@ borderline evidence) doesn't flap the state every message - that would
 defeat the entire point of the Scheduler tiers this drives, causing
 tier-thrashing instead of the compute savings we're after.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -95,14 +96,19 @@ class DetectionStateTracker:
             self.state = DetectionState.SEARCHING
             return self.state
 
-        ranked = sorted(participants, key=lambda p: p.probability_candidate, reverse=True)
+        ranked = sorted(
+            participants, key=lambda p: p.probability_candidate, reverse=True
+        )
         top = ranked[0]
         runner_up = ranked[1] if len(ranked) > 1 else None
         margin_clear = runner_up is None or (
-            top.probability_candidate - runner_up.probability_candidate > AMBIGUITY_MARGIN
+            top.probability_candidate - runner_up.probability_candidate
+            > AMBIGUITY_MARGIN
         )
 
-        qualifies_for_stable = top.probability_candidate >= CONFIDENT_THRESHOLD and margin_clear
+        qualifies_for_stable = (
+            top.probability_candidate >= CONFIDENT_THRESHOLD and margin_clear
+        )
 
         if qualifies_for_stable:
             self._stable_streak += 1
@@ -126,7 +132,9 @@ class DetectionStateTracker:
 
         return self.state
 
-    def _derive_fresh(self, top: ParticipantState, qualifies_for_stable: bool) -> DetectionState:
+    def _derive_fresh(
+        self, top: ParticipantState, qualifies_for_stable: bool
+    ) -> DetectionState:
         if qualifies_for_stable and self._stable_streak >= STABLE_ENTRY_STREAK:
             return DetectionState.STABLE_CANDIDATE
         if top.probability_candidate >= INSUFFICIENT_EVIDENCE_THRESHOLD:

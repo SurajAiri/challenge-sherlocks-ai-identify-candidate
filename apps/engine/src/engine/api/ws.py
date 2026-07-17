@@ -18,6 +18,7 @@ this is the base input/output layer the task asked for first. Those
 are the natural next layers once real identifiers exist and this needs
 to survive a dashboard reconnect mid-interview.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -86,4 +87,3 @@ async def _heartbeat_loop(engine: SessionEngine) -> None:
             await engine.heartbeat()
         except Exception:
             logger.exception("heartbeat failed")
-

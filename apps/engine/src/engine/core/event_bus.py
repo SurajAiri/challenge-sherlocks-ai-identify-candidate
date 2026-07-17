@@ -19,6 +19,7 @@ Redis pub/sub / NATS / a real queue without touching call sites - every
 call site only knows about `.subscribe(topic, handler)` and
 `await .publish(topic, payload)`.
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, HelpCircle, RotateCcw, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useMounted } from "@/lib/use-mounted";
 import { cn } from "@/lib/utils";
 import { useScenarioLibraryStore } from "@/store/scenario-library-store";
 import { useSessionStore } from "@/store/session-store";
@@ -28,8 +28,7 @@ export function ResultClient({ scenarioId }: { scenarioId: string }) {
   const context = useSessionStore((s) => s.context);
   const rawLog = useSessionStore((s) => s.rawLog);
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
   if (!mounted) return null;
 
   if (!scenario) {

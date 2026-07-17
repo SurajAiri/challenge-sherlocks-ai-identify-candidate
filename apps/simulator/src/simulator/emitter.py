@@ -29,7 +29,7 @@ import base64
 import time
 from typing import AsyncIterator
 
-from simulator.models import CompiledScenario, Event, EventType, StreamChunk, StreamFrame
+from simulator.models import CompiledScenario, Event, StreamChunk, StreamFrame
 
 
 def _read_chunk_bytes(chunk: StreamChunk) -> bytes:
