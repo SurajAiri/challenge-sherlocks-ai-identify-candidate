@@ -30,7 +30,13 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from engine.core.schemas import Evidence, SessionContext, SimEvent, SimEventType, StreamFrame
+from engine.core.schemas import (
+    Evidence,
+    SessionContext,
+    SimEvent,
+    SimEventType,
+    StreamFrame,
+)
 
 # How many recent evidence entries to keep per participant for
 # explainability. Unbounded growth here would slowly bloat memory over
@@ -93,6 +99,19 @@ class ParticipantState:
     participant_id: str
     display_name: str = ""
     display_name_history: list[tuple[float, str]] = field(default_factory=list)
+    # Authenticated join email, when the adapter provides one (real
+    # Meet/Zoom/Teams SDKs commonly do via SSO; the simulator/scenario
+    # format doesn't set this today, so it's "" for every existing
+    # scenario). Distinct from display_name: unlike a free-text name a
+    # participant can retype, this is - when present - close to
+    # unspoofable, which is exactly why identifiers/email_identity.py
+    # treats a match against it as strong evidence. Tracked here (not
+    # read directly off the SimEvent by the identifier) so an
+    # already-legal `data.email` key on participant_join/
+    # participant_update becomes available on every subsequent
+    # `on_join`/`on_event` call for this participant, not just the one
+    # event that happened to carry it.
+    email: str = ""
 
     is_present: bool = False
     joined_at: Optional[float] = None
@@ -219,6 +238,9 @@ class ParticipantStateRepository:
                 name = event.data.get("display_name")
                 if isinstance(name, str) and name:
                     self._set_display_name(state, name, event.t)
+                email = event.data.get("email")
+                if isinstance(email, str) and email:
+                    state.email = email
             case SimEventType.PARTICIPANT_LEAVE:
                 state.is_present = False
                 state.left_at = event.t
@@ -226,6 +248,9 @@ class ParticipantStateRepository:
                 name = event.data.get("display_name")
                 if isinstance(name, str) and name and name != state.display_name:
                     self._set_display_name(state, name, event.t)
+                email = event.data.get("email")
+                if isinstance(email, str) and email:
+                    state.email = email
             case SimEventType.WEBCAM_ON:
                 state.webcam_on = True
             case SimEventType.WEBCAM_OFF:

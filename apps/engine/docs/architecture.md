@@ -84,6 +84,13 @@ core/
                         connection.
 
 identifiers/            The actual pluggable, weighted identifiers.
+                        Deliberately a mix of cheap rule-based signals
+                        (always on, zero external dependency) and
+                        LLM-backed semantic signals (litellm-based,
+                        fail-open on any error/missing key) - see
+                        core/llm_client.py.
+
+  Rule-based:
   name_match.py          Display name vs candidate_name / interviewer_names
                           (fuzzy match). Weak by design - the reference
                           scenario exists specifically to punish anything
@@ -93,7 +100,52 @@ identifiers/            The actual pluggable, weighted identifiers.
                             who asks interview questions vs who answers them.
   screenshare_heuristic.py  Very low-weight: sharing a screen is mildly
                              consistent with walking through a solution.
+  silent_observer.py       Present a long time with zero speaking/webcam/
+                            screenshare/transcript activity -> accrues
+                            against_candidate evidence, decaying if they
+                            later start participating. Targets "multiple
+                            observers join silently".
+  host_organizer.py        Display name vs calendar_invite.organizer.
+                           Meeting organizers are essentially never the
+                           candidate - independent of whether
+                           candidate_name itself is right or stale, which
+                           helps with "interviewer enters the wrong
+                           candidate name".
+  email_identity.py        Display name / ParticipantState.email vs
+                            candidate_email. Strong, hard-to-fake signal
+                            when an authenticated join email is available
+                            (real adapters commonly provide this via SSO);
+                            silent no-op on every scenario that doesn't set
+                            one - forward-compatible plumbing, not dead code.
+
+  LLM-backed (engine.core.llm_client, model configurable via LLM_MODEL,
+  default fireworks_ai/accounts/fireworks/models/deepseek-v4-flash):
+  llm_name_role.py          Semantic name/role classification - handles
+                             nicknames, transliteration, suffixes like
+                             "(Contractor)" that name_match's raw string
+                             similarity can't. Runs alongside name_match,
+                             not instead of it.
+  llm_transcript_role.py    Batched, windowed transcript-behavior
+                             classification (interviewee / interviewer /
+                             observer / unclear) - the LLM-based upgrade
+                             qa_pattern's own docstring calls out as the
+                             natural next step, run alongside qa_pattern
+                             rather than replacing it.
 ```
+
+## LLM identifiers - fail-open contract
+
+`core/llm_client.py`'s `structured_completion()` is the single call
+site both LLM identifiers use. It returns either a validated pydantic
+instance of the requested schema, or `None` - there is no third
+outcome. A missing API key, a network timeout, a provider error, or a
+response that fails schema validation all collapse to `None`, logged
+once as a warning. Both LLM identifiers treat `None` exactly like "no
+evidence this tick" - they never raise, and the engine's belief state
+for a session with no LLM connectivity at all is identical to running
+with just the rule-based identifiers. `tests/test_llm_identifiers.py`
+exercises this contract directly (mocked completion, no network calls
+in CI).
 
 ## One event, end to end
 

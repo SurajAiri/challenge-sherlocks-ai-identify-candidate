@@ -172,17 +172,40 @@ def default_registry() -> ProcessorRegistry:
     Import is local to avoid a hard dependency cycle (identifiers
     import from engine.core, not the other way around) and to make it
     obvious this is the one function to edit when adding/removing
-    processors or identifiers."""
+    processors or identifiers.
+
+    Rule-based and LLM-based identifiers are deliberately mixed rather
+    than one replacing the other: `name_match`/`qa_pattern` (cheap,
+    deterministic, always-on) and `llm_name_role`/`llm_transcript_role`
+    (semantic, LLM-backed, fail-open) run side by side as independent
+    weak signals that corroborate or disagree with each other - which
+    is the whole point of combining multiple weak signals rather than
+    trusting any single rule or model. If the LLM identifiers can't
+    reach their provider (no API key, timeout, outage), the rule-based
+    identifiers keep the engine fully functional on their own.
+    """
+    from engine.identifiers.email_identity import EmailIdentityIdentifier
+    from engine.identifiers.host_organizer import HostOrganizerExclusionIdentifier
+    from engine.identifiers.llm_name_role import LLMNameRoleIdentifier
+    from engine.identifiers.llm_transcript_role import LLMTranscriptRoleIdentifier
     from engine.identifiers.name_match import NameMatchIdentifier
     from engine.identifiers.qa_pattern import QuestionAnsweringPatternIdentifier
     from engine.identifiers.screenshare_heuristic import ScreenshareHeuristicIdentifier
+    from engine.identifiers.silent_observer import SilentObserverIdentifier
     from engine.identifiers.speaking_share import SpeakingShareIdentifier
 
     return ProcessorRegistry(
         [
+            # Rule-based, deterministic, always-on.
             NameMatchIdentifier(),
             SpeakingShareIdentifier(),
             QuestionAnsweringPatternIdentifier(),
             ScreenshareHeuristicIdentifier(),
+            SilentObserverIdentifier(),
+            HostOrganizerExclusionIdentifier(),
+            EmailIdentityIdentifier(),
+            # LLM-backed, semantic, fail-open (see llm_client.py).
+            LLMNameRoleIdentifier(),
+            LLMTranscriptRoleIdentifier(),
         ]
     )

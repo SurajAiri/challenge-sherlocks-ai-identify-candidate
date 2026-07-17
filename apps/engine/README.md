@@ -60,6 +60,28 @@ to another identifier directly; all coordination happens through
 Evidence, which is what keeps each one independently
 pluggable/testable/removable.
 
+## LLM-backed identifiers (litellm)
+
+`llm_name_role.py` and `llm_transcript_role.py` call an LLM through
+[litellm](https://docs.litellm.ai/) via the shared helper in
+`core/llm_client.py`. Configure via env vars (see `example.env`):
+
+- `LLM_MODEL` - any litellm model string, default
+  `fireworks_ai/accounts/fireworks/models/deepseek-v4-flash`. Must
+  support structured/JSON-schema-constrained output.
+- `FIREWORKS_API_KEY` (or whatever credential your chosen `LLM_MODEL`
+  needs) - required for the LLM identifiers to actually produce
+  evidence.
+- `LLM_REQUEST_TIMEOUT_SECONDS` - per-call timeout, default 8.
+
+No key configured, a timeout, a provider outage, or a response that
+fails schema validation are all treated identically: the identifier
+emits nothing for that tick and logs a warning - it never raises, and
+the rest of the engine (including the rule-based identifiers) keeps
+running unaffected. This is deliberate: the LLM identifiers are
+additive corroborating signal, not a dependency the engine needs to
+function.
+
 ## Assumptions
 
 - The dashboard is the only client; the WebSocket forwards frames
@@ -78,14 +100,26 @@ pluggable/testable/removable.
   `belief_engine.softmax()` recomputes over the full participant pool on
   every evidence update, which is intentionally simple and would need
   revisiting for calls with dozens of participants.
+- `email_identity.py` reads an optional `data.email` key on
+  `participant_join`/`participant_update` (tracked internally as
+  `ParticipantState.email`) - no current scenario sets this, so it's a
+  no-op today, but real Meet/Zoom/Teams adapters commonly provide an
+  authenticated join email and this activates automatically once one
+  does, with no further code changes.
 
 ## Known limitations / next steps
 
-- The four shipped identifiers (`name_match`, `speaking_share`,
-  `qa_pattern`, `screenshare_heuristic`) are heuristics meant to prove
-  the pipeline end-to-end, not the final signal set. `qa_pattern`'s
-  "ends with `?`" question detector in particular is a placeholder for
-  an LLM-based or trained classification pass.
+- Nine identifiers now ship: four rule-based baseline signals
+  (`name_match`, `speaking_share`, `qa_pattern`,
+  `screenshare_heuristic`), three additional rule-based signals
+  (`silent_observer`, `host_organizer_exclusion`, `email_identity`),
+  and two LLM-backed signals (`llm_name_role`, `llm_transcript_role`)
+  that upgrade `name_match`/`qa_pattern`'s naive heuristics with actual
+  semantic reasoning while running *alongside* them, not replacing them
+  - see docs/architecture.md for the full breakdown. All are still
+  heuristics/prompts meant to prove the pipeline end-to-end with
+  multiple independent weak signals, not a final, tuned signal set -
+  weights are hand-picked, not learned from labeled data yet.
 - `probability_not_candidate` / `belief_engine.is_eliminated()` isn't yet
   wired into any scheduling decision (e.g. skipping expensive
   video/audio identifiers for a participant already effectively ruled
@@ -93,3 +127,9 @@ pluggable/testable/removable.
 - No persistence: engine state lives only for the lifetime of the
   WebSocket connection. A dashboard reconnect mid-interview currently
   starts a fresh `SessionEngine` with no memory of what came before.
+- No deepfake/voice-clone/CV/behavioral-analysis identifiers yet -
+  still explicitly out of scope for this layer per docs/architecture.md.
+- LLM identifier prompts are hand-written and not yet evaluated against
+  a labeled dataset of real name/transcript ambiguity cases; the JSON
+  schema contract and fail-open behavior are tested
+  (`tests/test_llm_identifiers.py`), but prompt quality itself isn't.
