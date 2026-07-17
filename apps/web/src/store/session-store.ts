@@ -67,12 +67,30 @@ export interface RawLogEntry {
   detail?: unknown;
 }
 
+// Mirrors engine/core/detection_state.py's DetectionState enum.
+export type DetectionState = "searching" | "likely_candidate" | "stable_candidate" | "lost_candidate";
+
 export interface EnginePrediction {
   id: string;
   t: number;
   receivedAt: number;
+  /** Everyone within the engine's ambiguity band: [] = no call yet,
+   * [id] = confident pick, [id, id, ...] = still ambiguous. Mirrors
+   * EngineMessage.possible_candidate_ids. */
+  possibleCandidateIds: string[];
+  /** probability_being_candidate pairs, ranked desc - the full pool. */
+  probabilityBeingCandidate: [string, number][];
+  /** probability_not_being_candidate pairs, same ordering. */
+  probabilityNotBeingCandidate: [string, number][];
+  /** Reasoning trail, only for ids in possibleCandidateIds. */
+  evidence: Record<string, string[]>;
+  detectionState: DetectionState;
+  // Convenience derivations kept for the panel/result views:
+  /** First id when the engine is confident (length-1 list), else null. */
   candidateParticipantId: string | null;
+  /** Top-ranked probability_being_candidate value, else null. */
   confidence: number | null;
+  /** First evidence line for the top-ranked possible candidate. */
   reasoning: string | null;
   raw: unknown;
 }
@@ -572,25 +590,94 @@ function describeEvent(event: SimEvent, state: SessionState): string {
   return `${event.type}${name ? ` [${name}]` : ""}${extra}`;
 }
 
+const DETECTION_STATES: readonly DetectionState[] = [
+  "searching",
+  "likely_candidate",
+  "stable_candidate",
+  "lost_candidate",
+];
+
+function parseIdProbPairs(value: unknown): [string, number][] {
+  if (!Array.isArray(value)) return [];
+  const pairs: [string, number][] = [];
+  for (const entry of value) {
+    if (
+      Array.isArray(entry) &&
+      entry.length === 2 &&
+      typeof entry[0] === "string" &&
+      typeof entry[1] === "number"
+    ) {
+      pairs.push([entry[0], entry[1]]);
+    }
+  }
+  return pairs;
+}
+
+function parseEvidenceMap(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const map: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(value)) {
+    map[k] = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  }
+  return map;
+}
+
 function parseEnginePrediction(raw: unknown): EnginePrediction {
   const obj = (raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}) as Record<string, unknown>;
 
-  // Defensive/best-effort field lookup: the Engine's real message shape
-  // isn't confirmed yet, so accept a handful of plausible key names
-  // rather than assuming one exact contract.
+  // The real wire contract is EngineMessage (engine/core/schemas.py,
+  // built by core/output_formatter.py):
+  //   { type: "prediction", t, possible_candidate_ids: string[],
+  //     probability_being_candidate: [id, p][], probability_not_being_candidate: [id, p][],
+  //     evidence: {id: string[]}, detection_state: string }
+  // A handful of legacy/fallback key names are still accepted so an
+  // older engine doesn't silently render nothing.
+  const possibleCandidateIds = Array.isArray(obj.possible_candidate_ids)
+    ? obj.possible_candidate_ids.filter((x): x is string => typeof x === "string")
+    : [];
+  const probabilityBeingCandidate = parseIdProbPairs(obj.probability_being_candidate);
+  const probabilityNotBeingCandidate = parseIdProbPairs(obj.probability_not_being_candidate);
+  const evidence = parseEvidenceMap(obj.evidence);
+
+  const rawState = firstString(obj.detection_state, obj.detectionState);
+  const detectionState: DetectionState = DETECTION_STATES.includes(rawState as DetectionState)
+    ? (rawState as DetectionState)
+    : "searching";
+
   const candidateParticipantId =
-    firstString(obj.candidate_participant_id, obj.candidateParticipantId, obj.participant_id, obj.candidate_id) ??
+    possibleCandidateIds.length === 1
+      ? possibleCandidateIds[0]
+      : (firstString(
+          obj.candidate_participant_id,
+          obj.candidateParticipantId,
+          obj.participant_id,
+          obj.candidate_id
+        ) ?? null);
+
+  const topId = possibleCandidateIds[0] ?? null;
+  const confidence =
+    probabilityBeingCandidate.length > 0
+      ? probabilityBeingCandidate[0][1]
+      : (firstNumber(obj.confidence, obj.score) ?? null);
+
+  const reasoning =
+    (topId ? (evidence[topId]?.[0] ?? null) : null) ??
+    firstString(obj.reasoning, obj.explanation, obj.rationale) ??
     null;
-  const confidence = firstNumber(obj.confidence, obj.score);
-  const reasoning = firstString(obj.reasoning, obj.explanation, obj.rationale) ?? null;
+
   const t = firstNumber(obj.t, obj.timestamp) ?? 0;
 
   return {
     id: makeId("pred"),
     t,
     receivedAt: Date.now(),
+    possibleCandidateIds,
+    probabilityBeingCandidate,
+    probabilityNotBeingCandidate,
+    evidence,
+    detectionState,
     candidateParticipantId,
-    confidence: confidence ?? null,
+    confidence,
     reasoning,
     raw,
   };

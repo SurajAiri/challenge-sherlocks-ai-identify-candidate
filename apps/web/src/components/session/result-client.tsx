@@ -43,12 +43,19 @@ export function ResultClient({ scenarioId }: { scenarioId: string }) {
   }
 
   const predictedId = engineLatest?.candidateParticipantId ?? null;
+  const possibleIds = engineLatest?.possibleCandidateIds ?? [];
   const groundTruthId = scenario.groundTruthParticipantId ?? null;
-  const predictedName = predictedId ? participants[predictedId]?.displayName ?? predictedId : null;
+  const predictedName = predictedId
+    ? (participants[predictedId]?.displayName ?? predictedId)
+    : possibleIds.length > 1
+      ? possibleIds.map((pid) => participants[pid]?.displayName ?? pid).join(" / ")
+      : null;
   const groundTruthName = groundTruthId ? participants[groundTruthId]?.displayName ?? groundTruthId : null;
 
+  // Scored against the whole possible-candidate set: naming the real
+  // candidate inside an ambiguous pair is still a pass.
   const verdict: "correct" | "incorrect" | "unknown" =
-    !engineLatest || !groundTruthId ? "unknown" : predictedId === groundTruthId ? "correct" : "incorrect";
+    !engineLatest || !groundTruthId ? "unknown" : possibleIds.includes(groundTruthId) ? "correct" : "incorrect";
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-10">

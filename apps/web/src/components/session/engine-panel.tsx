@@ -25,12 +25,11 @@ const STATUS_LABEL: Record<EngineStatus, string> = {
 };
 
 /**
- * This is intentionally a slot, not a feature: every value below falls
- * back to an em dash until a real message arrives over the Engine
- * WebSocket. Wiring the real Engine up later means only ever changing
- * what's on the other end of that socket - this component, the store
- * shape, and the message parsing in `session-store.ts` shouldn't need
- * to change.
+ * Renders the engine's live EngineMessage stream (see
+ * engine/core/output_formatter.py): the current possible-candidate
+ * set, the full ranked probability pool, the detection state, and the
+ * evidence trail behind the leading hypothesis. Until the first
+ * message arrives, everything falls back to an em dash.
  */
 export function EnginePanel() {
   const status = useSessionStore((s) => s.engineStatus);
@@ -40,9 +39,17 @@ export function EnginePanel() {
   const [showHistory, setShowHistory] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
 
-  const candidateName = latest?.candidateParticipantId
-    ? participants[latest.candidateParticipantId]?.displayName ?? latest.candidateParticipantId
-    : null;
+  const displayName = (pid: string) => participants[pid]?.displayName ?? pid;
+
+  // The engine's verdict block is driven by possibleCandidateIds:
+  // [] = still searching, 1 = confident pick, >1 = ambiguous between them.
+  const possibleNames = latest?.possibleCandidateIds.map(displayName) ?? [];
+  const candidateName = latest?.candidateParticipantId ? displayName(latest.candidateParticipantId) : null;
+  const candidateLabel = candidateName
+    ? candidateName
+    : possibleNames.length > 1
+      ? possibleNames.join(" / ")
+      : null;
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
@@ -55,7 +62,7 @@ export function EnginePanel() {
       </div>
 
       <dl className="flex flex-col gap-2.5 text-sm">
-        <Row label="Candidate" value={candidateName ?? "—"} mono={!candidateName} />
+        <Row label="Candidate" value={candidateLabel ?? "—"} mono={!candidateLabel} />
         <Row
           label="Confidence"
           value={
@@ -66,6 +73,12 @@ export function EnginePanel() {
             )
           }
         />
+        {latest && (
+          <Row
+            label="State"
+            value={<span className="font-mono text-xs">{latest.detectionState}</span>}
+          />
+        )}
         <div>
           <dt className="text-xs text-muted-foreground">Reasoning</dt>
           <dd className="mt-0.5 text-sm text-foreground/90">
@@ -73,6 +86,40 @@ export function EnginePanel() {
           </dd>
         </div>
       </dl>
+
+      {latest && latest.probabilityBeingCandidate.length > 0 && (
+        <div className="border-t border-border pt-2">
+          <p className="mb-1.5 text-xs text-muted-foreground">Candidate probabilities</p>
+          <ul className="flex flex-col gap-1.5">
+            {latest.probabilityBeingCandidate.map(([pid, p]) => (
+              <li key={pid} className="flex items-center gap-2 text-xs">
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate",
+                    latest.possibleCandidateIds.includes(pid)
+                      ? "font-medium text-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  {displayName(pid)}
+                </span>
+                <span className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+                  <span
+                    className={cn(
+                      "block h-full rounded-full",
+                      p >= 0.7 ? "bg-emerald-400" : p >= 0.4 ? "bg-amber-400" : "bg-muted-foreground/50"
+                    )}
+                    style={{ width: `${Math.round(p * 100)}%` }}
+                  />
+                </span>
+                <span className="w-9 text-right font-mono text-muted-foreground">
+                  {Math.round(p * 100)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {history.length > 0 && (
         <div className="border-t border-border pt-2">
