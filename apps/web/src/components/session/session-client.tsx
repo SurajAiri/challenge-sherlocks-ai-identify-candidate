@@ -110,6 +110,10 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
     setRunStatus("idle");
   }
 
+  function handleReconnect() {
+    engineSocketRef.current?.connect();
+  }
+
   return (
     <div className="flex flex-1 flex-col">
       <LiveAudioPlayer />
@@ -127,7 +131,7 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
           <RawEventLog />
         </div>
         <div className="flex flex-col gap-4 lg:sticky lg:top-4 lg:self-start">
-          <EnginePanel />
+          <EnginePanel onReconnect={handleReconnect} />
         </div>
       </div>
     </div>

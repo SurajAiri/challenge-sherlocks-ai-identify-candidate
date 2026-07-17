@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BrainCircuit, ChevronDown, History } from "lucide-react";
+import { BrainCircuit, ChevronDown, History, RefreshCw } from "lucide-react";
 
 import { StatusDot, type StatusTone } from "@/components/status-dot";
 import { cn } from "@/lib/utils";
@@ -31,7 +31,7 @@ const STATUS_LABEL: Record<EngineStatus, string> = {
  * evidence trail behind the leading hypothesis. Until the first
  * message arrives, everything falls back to an em dash.
  */
-export function EnginePanel() {
+export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
   const status = useSessionStore((s) => s.engineStatus);
   const latest = useSessionStore((s) => s.engineLatest);
   const history = useSessionStore((s) => s.engineHistory);
@@ -51,6 +51,8 @@ export function EnginePanel() {
       ? possibleNames.join(" / ")
       : null;
 
+  const canReconnect = onReconnect && (status === "disconnected" || status === "error" || status === "idle");
+
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
       <div className="flex items-center justify-between">
@@ -58,7 +60,20 @@ export function EnginePanel() {
           <BrainCircuit className="size-4 text-[var(--accent-signal)]" />
           Engine
         </span>
-        <StatusDot tone={STATUS_TONE[status]} label={STATUS_LABEL[status]} />
+        <div className="flex items-center gap-2">
+          <StatusDot tone={STATUS_TONE[status]} label={STATUS_LABEL[status]} />
+          {canReconnect && (
+            <button
+              type="button"
+              onClick={onReconnect}
+              title="Reconnect to engine"
+              className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <RefreshCw className="size-3" />
+              Reconnect
+            </button>
+          )}
+        </div>
       </div>
 
       <dl className="flex flex-col gap-2.5 text-sm">

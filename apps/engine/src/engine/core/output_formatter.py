@@ -88,6 +88,14 @@ def _select_possible_candidates(
     if top.probability_candidate < INSUFFICIENT_EVIDENCE_THRESHOLD:
         return []
 
+    # Defense-in-depth: a participant with zero identifier_contributions
+    # has no actual evidence - their probability_candidate is purely a
+    # softmax artifact (the pool normalises to 1.0 regardless of how many
+    # people have zero logits). Never report them as a possible candidate,
+    # even if their softmax share happens to clear the threshold.
+    if not top.identifier_contributions:
+        return []
+
     is_durable = detection_state == _DetectionState.STABLE_CANDIDATE
 
     if is_durable:

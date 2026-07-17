@@ -67,6 +67,18 @@ from engine.core.state_store import (
     ParticipantStateRepository,
 )
 
+# Logit assigned to participants who have zero identifier_contributions
+# (i.e. no evidence has ever arrived for them). This keeps their
+# softmax-normalized `probability_candidate` at a low, equal baseline
+# across all zero-evidence participants, preventing the first person to
+# join a call from transiently spiking to 100% (softmax({a: 0.0}) = 1.0)
+# and falsely crossing INSUFFICIENT_EVIDENCE_THRESHOLD before any
+# identifiers have run.  Once at least one identifier fires for a
+# participant their real accumulated logit - which starts at 0.0 and
+# grows or shrinks from there - takes over, so this baseline has no
+# lasting effect on a session with actual evidence.
+NO_EVIDENCE_BASELINE_LOGIT = -1.5
+
 # Clamp accumulated logits so one long session with lots of one-sided
 # evidence can't overflow math.exp or make old evidence irreversible -
 # a strong late signal should always still be able to move the needle.
@@ -172,7 +184,19 @@ class BeliefEngine:
         and safe to call from either `apply()` (new evidence) or a bare
         heartbeat (time passing with no new evidence, so decay is
         actually visible), both of which pass the same
-        `repository.current_t` as "now"."""
+        `repository.current_t` as "now".
+
+        Participants with no identifier_contributions at all (no evidence
+        has arrived for them yet) are fed into the softmax with a small
+        negative baseline logit (`NO_EVIDENCE_BASELINE_LOGIT`) rather
+        than 0.0. This prevents the softmax artifact where a single
+        participant in an otherwise-empty pool computes to 100% purely
+        by being the only element, falsely triggering
+        INSUFFICIENT_EVIDENCE_THRESHOLD before any identifier has run.
+        The stored `logit_candidate` field is NOT set to the baseline -
+        it stays 0.0 ("no evidence accumulated") - only the softmax
+        input is adjusted so the probability reflects the honest
+        "don't know yet" state."""
         t_now = repository.current_t
 
         candidate_logits: dict[str, float] = {}
@@ -189,7 +213,13 @@ class BeliefEngine:
             state.logit_not_candidate = max(
                 -LOGIT_CLAMP, min(LOGIT_CLAMP, not_candidate_total)
             )
-            candidate_logits[pid] = state.logit_candidate
+            # Use the real accumulated logit for participants that have
+            # evidence; fall back to the negative baseline for those that
+            # don't, so they sit low and equal until something real lands.
+            has_evidence = bool(state.identifier_contributions)
+            candidate_logits[pid] = (
+                state.logit_candidate if has_evidence else NO_EVIDENCE_BASELINE_LOGIT
+            )
 
         probs = softmax(candidate_logits)
         for pid, state in repository.participants.items():
