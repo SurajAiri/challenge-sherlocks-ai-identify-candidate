@@ -232,7 +232,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 
   liveAudioChunkQueue: [],
   livePlaybackEnabled: false,
-  runSpeedMultiplier: null,
+  runSpeedMultiplier: 1,
 
   engineStatus: "idle",
   engineLatest: null,

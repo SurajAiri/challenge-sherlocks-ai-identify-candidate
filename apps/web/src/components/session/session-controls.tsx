@@ -82,13 +82,13 @@ export function SessionControls({
       <div className="flex items-center gap-4">
         <label
           className="flex items-center gap-2 text-sm text-muted-foreground"
-          title="Overrides the scenario's authored speed_multiplier for the next run. Takes effect at start only - can't be changed mid-stream, since it's the simulator's own clock being sped up, not client-side playback."
+          title="Sim speed is locked at 1x — the engine cannot run at higher speeds due to identifier run limits."
         >
           <span className="hidden sm:inline">Sim speed</span>
           <select
             className="rounded-md border border-border bg-background px-2 py-1 text-xs disabled:opacity-50"
-            value={runSpeedMultiplier ?? ""}
-            disabled={running}
+            value={runSpeedMultiplier ?? 1}
+            disabled
             onChange={(e) =>
               setRunSpeedMultiplier(e.target.value === "" ? null : Number(e.target.value))
             }
