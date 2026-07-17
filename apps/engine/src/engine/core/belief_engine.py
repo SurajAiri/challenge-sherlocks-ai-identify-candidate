@@ -228,7 +228,11 @@ class BeliefEngine:
 
         # Detection state is derived from the same fresh softmax pool,
         # not scored independently - see detection_state.py docstring.
-        self.detection_state.update(list(repository.participants.values()))
+        # Pass current_t so the EXPLORING gate can check elapsed session time.
+        self.detection_state.update(
+            list(repository.participants.values()),
+            elapsed_t=repository.current_t,
+        )
 
     @staticmethod
     def is_eliminated(state: ParticipantState) -> bool:

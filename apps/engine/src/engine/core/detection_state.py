@@ -11,17 +11,17 @@ tell the client" can never silently disagree.
 
 States:
 
-  SEARCHING          - no participant clears INSUFFICIENT_EVIDENCE_THRESHOLD.
-                        Includes session start AND a new participant
-                        joining before they've accumulated any evidence -
-                        both are "don't know who yet", not different
-                        states. A new joiner mid-call doesn't need its
-                        own state; if they turn out to be a stronger
-                        hypothesis, they'll organically pull the
-                        softmax-normalized leader back down through
-                        LIKELY/SEARCHING, because probability_candidate
-                        is recomputed across the whole pool on every
-                        update - no special-casing required here.
+  EXPLORING          - mandatory warmup: the session hasn't yet
+                        accumulated enough evidence for any prediction
+                        to be meaningful. Both MIN_ELAPSED_SECONDS and
+                        MIN_EVIDENCE_PIECES must be satisfied before
+                        the machine is allowed to advance. The engine
+                        reports possible_candidate_ids=[] during this
+                        phase - not because it doesn't know, but
+                        because it explicitly refuses to rush a guess
+                        on thin data.
+  SEARCHING          - warmup cleared, but no participant clears
+                        INSUFFICIENT_EVIDENCE_THRESHOLD yet.
   LIKELY_CANDIDATE   - someone clears the insufficient-evidence floor
                         but isn't yet a clean, unambiguous leader.
   STABLE_CANDIDATE   - a leader clears CONFIDENT_THRESHOLD with no one
@@ -68,8 +68,35 @@ STABLE_ENTRY_STREAK = 2
 
 assert STABLE_EXIT_THRESHOLD < CONFIDENT_THRESHOLD, "hysteresis band must be non-empty"
 
+# ---------------------------------------------------------------------------
+# EXPLORING warmup gate
+# ---------------------------------------------------------------------------
+# Both conditions must be true before the state machine is allowed to
+# advance past EXPLORING. They are intentionally independent so either
+# one can act as a floor on its own:
+#
+#   MIN_ELAPSED_SECONDS   - raw session time (simulation clock, not wall
+#     clock). Even if identifiers fire very fast on the first events,
+#     we don't name anyone until at least this many seconds of session
+#     content have been observed. Tune this to the shortest credible
+#     window of signal your slowest-firing identifier needs.
+#
+#   MIN_EVIDENCE_PIECES   - total evidence log entries summed across ALL
+#     participants. Each identifier that fires for any participant
+#     contributes one entry. This measures "have enough independent
+#     observations landed?" regardless of elapsed time - a slow session
+#     with sparse events would otherwise clear the time gate while still
+#     sitting on near-zero evidence.
+#
+# Both gates together say: "we've seen enough *time* and enough
+# *independent signal* to trust that the softmax order reflects reality
+# rather than who happened to join first or speak first."
+MIN_ELAPSED_SECONDS: float = 20.0
+MIN_EVIDENCE_PIECES: int = 3
+
 
 class DetectionState(str, Enum):
+    EXPLORING = "exploring"
     SEARCHING = "searching"
     LIKELY_CANDIDATE = "likely_candidate"
     STABLE_CANDIDATE = "stable_candidate"
@@ -82,15 +109,47 @@ class DetectionStateTracker:
     per-participant - this is a statement about the *session's*
     identification progress, not about any one person)."""
 
-    state: DetectionState = DetectionState.SEARCHING
+    state: DetectionState = DetectionState.EXPLORING
     _stable_streak: int = field(default=0, repr=False)
 
-    def update(self, participants: list[ParticipantState]) -> DetectionState:
+    def update(
+        self,
+        participants: list[ParticipantState],
+        elapsed_t: float = 0.0,
+    ) -> DetectionState:
         """Recompute state from the current belief snapshot. Call this
         right after `BeliefEngine.recompute_probabilities()` - it's the
-        one place that already has the full, freshly-normalized pool."""
+        one place that already has the full, freshly-normalized pool.
+
+        `elapsed_t` is the simulation clock's current_t (seconds of
+        session content seen so far). It's checked against
+        MIN_ELAPSED_SECONDS as part of the EXPLORING gate. Callers
+        that don't have it available can omit it; the time gate will
+        simply never clear until they pass a non-zero value.
+        """
         previous = self.state
 
+        # ---- EXPLORING gate ------------------------------------------
+        # Stay in EXPLORING until both heuristic floors are cleared.
+        # Once we leave EXPLORING we never re-enter it (even if evidence
+        # later evaporates through decay - that's what LOST_CANDIDATE is
+        # for). The gate is one-way by design.
+        if previous == DetectionState.EXPLORING:
+            total_evidence = sum(
+                len(p.evidence_log) for p in participants
+            )
+            time_ok = elapsed_t >= MIN_ELAPSED_SECONDS
+            evidence_ok = total_evidence >= MIN_EVIDENCE_PIECES
+            if not (time_ok and evidence_ok):
+                # Still warming up - remain in EXPLORING, reset streak
+                # so the first real snapshot after we emerge doesn't
+                # inherit a stale streak count.
+                self._stable_streak = 0
+                return self.state
+            # Both gates cleared: fall through to normal state derivation
+            # from the current belief snapshot.
+
+        # ---- Normal state machine ------------------------------------
         if not participants:
             self._stable_streak = 0
             self.state = DetectionState.SEARCHING
@@ -128,6 +187,7 @@ class DetectionStateTracker:
             # than staying LOST indefinitely.
             self.state = self._derive_fresh(top, qualifies_for_stable)
         else:
+            # EXPLORING (just cleared), SEARCHING, or LIKELY_CANDIDATE
             self.state = self._derive_fresh(top, qualifies_for_stable)
 
         return self.state

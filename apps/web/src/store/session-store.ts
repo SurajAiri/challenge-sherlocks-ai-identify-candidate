@@ -68,7 +68,7 @@ export interface RawLogEntry {
 }
 
 // Mirrors engine/core/detection_state.py's DetectionState enum.
-export type DetectionState = "searching" | "likely_candidate" | "stable_candidate" | "lost_candidate";
+export type DetectionState = "exploring" | "searching" | "likely_candidate" | "stable_candidate" | "lost_candidate";
 
 export interface EnginePrediction {
   id: string;
@@ -591,6 +591,7 @@ function describeEvent(event: SimEvent, state: SessionState): string {
 }
 
 const DETECTION_STATES: readonly DetectionState[] = [
+  "exploring",
   "searching",
   "likely_candidate",
   "stable_candidate",

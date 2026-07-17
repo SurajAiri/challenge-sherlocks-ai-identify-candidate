@@ -1,159 +1,181 @@
-# Turborepo starter
+# Sherlock — Candidate Identifier System
 
-This Turborepo starter is maintained by the Turborepo core team.
+A real-time AI system that identifies the interview candidate in a multi-participant video call, even when they join under a pseudonym, device name, or mismatched display name.
 
-## Using this example
+---
 
-Run the following command:
+## Overview
 
-```sh
-npx create-turbo@latest
+Modern hiring platforms face a verification problem: the person who accepted the calendar invite is not necessarily the person on screen. **Sherlock** solves this by treating candidate identification as a continuous probabilistic inference problem — not a one-shot name match.
+
+The system watches a simulated call as events stream in (participant joins, transcript lines, screen-share toggles, media state changes), runs multiple independent *identifiers* in parallel, and maintains a running Bayesian belief over who in the call is most likely the real candidate. A dashboard surfaces the engine's live verdict, confidence, and reasoning trail in real time.
+
+![Scenario session with live engine panel](screenshots/img-meeting-page.jpg)
+
+---
+
+## Architecture
+
+The system is split into three independent applications that communicate over WebSocket:
+
+```
+Scenario Simulator ──ws──▶ Dashboard (web) ──ws──▶ Belief Engine
+   (raw events)               (relay + UI)         (predictions)
 ```
 
-## What's inside?
+![System architecture diagram](arch/arch.png)
 
-This Turborepo includes the following packages/apps:
+### Simulator (`apps/simulator`)
 
-### Apps and Packages
+Compiles YAML scenario files into a stream of raw events (`participant_joined`, `transcript`, `screen_share_started`, …) and emits them over WebSocket at configurable playback speed. The simulator is entirely separate from the engine — it has no inference logic, only event emission.
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+### Dashboard (`apps/web`)
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+A Next.js application that:
+- Receives the raw event stream from the simulator
+- Relays events to the Belief Engine
+- Displays participants, live transcript, scenario context, and the engine's real-time predictions in a side panel
 
-### Utilities
+![Scenario library](screenshots/img-scenarios-list.jpg)
 
-This Turborepo has some additional tools already setup for you:
+### Belief Engine (`apps/engine`)
 
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
+A Python FastAPI + WebSocket service that performs the actual identification. It maintains a `ParticipantStateRepository` shared across all components, then runs a pipeline of *identifiers* on every incoming event.
 
-### Build
+---
 
-To build all apps and packages, run the following command:
+## How the Engine Works
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+### Identifiers
 
-```sh
-cd my-turborepo
-turbo build
-```
+Each identifier is a self-contained signal extractor that fires on relevant events and emits a `NormalizedEvidence` object containing:
+- `candidate_logit` — how much this observation supports "this person is the candidate"
+- `not_candidate_logit` — how much it supports "this person is definitely not the candidate"
+- `reasoning` — a human-readable explanation line shown in the UI
 
-Without global `turbo`, use your package manager:
+| Identifier | Signal | Type |
+|---|---|---|
+| `name_match` | Participant display name vs. calendar invite name | Instant, one-time |
+| `email_identity` | Email match from participant metadata | Instant, one-time |
+| `host_organizer` | Meeting host / organizer role heuristic | Instant, one-time |
+| `speaking_share` | Proportion of speaking time relative to equal split | Temporal, continuous |
+| `qa_pattern` | Asymmetric Q&A behaviour (one person asks, another answers) | Temporal, continuous |
+| `screenshare_heuristic` | Who shares their screen when prompted | Instant, continuous |
+| `silent_observer` | Long silence in a multi-participant call → less likely candidate | Temporal, continuous |
+| `llm_name_role` | LLM analysis of transcript turns for name/role signals | Temporal, continuous |
+| `llm_transcript_role` | LLM analysis of conversational role (interviewer vs. interviewee) | Temporal, continuous |
 
-```sh
-cd my-turborepo
-npx turbo build
-pnpm dlx turbo build
-pnpm exec turbo build
-```
+### Belief Accumulation
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+Evidence from each identifier is accumulated as **log-odds** with per-identifier **exponential decay** (so old signal fades if no new evidence arrives). Two independent tracks are maintained:
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+- **`logit_candidate`** — log-odds of *being* the candidate. Converted to a probability via **softmax** across all participants (a zero-sum competition — as one person becomes more likely, others become less likely).
+- **`logit_not_candidate`** — log-odds of *not* being the candidate (e.g. strong interviewer signal). Converted via **sigmoid**, independently per participant — multiple people can simultaneously be "clearly not the candidate".
 
-```sh
-turbo build --filter=docs
-```
+### Detection States
 
-Without global `turbo`:
+The engine progresses through a one-way state machine:
 
-```sh
-npx turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-```
+| State | Meaning |
+|---|---|
+| `exploring` | **Warmup gate.** The engine refuses to name anyone until ≥ 20 s of session time *and* ≥ 3 evidence pieces have accumulated. Prevents premature mis-identification based on who happened to join first. |
+| `searching` | Warmup cleared. No participant has cleared the evidence floor yet. |
+| `likely_candidate` | Someone has cleared the evidence floor but isn't yet a clean, unambiguous leader. |
+| `stable_candidate` | The leader clears the confidence threshold with a sufficient margin over the second-place participant, held for multiple consecutive snapshots. |
+| `lost_candidate` | Was stable; the leader dropped below the exit threshold. Transitional — re-derives fresh on the next snapshot. |
 
-### Develop
+The `possible_candidate_ids` field in every engine message is `[]` during `exploring` and `searching`, so the downstream system never receives a premature or random guess.
 
-To develop all apps and packages, run the following command:
+### Results
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+After a run completes, the session results page shows the engine's final verdict against the ground truth:
 
-```sh
-cd my-turborepo
-turbo dev
-```
+![Session results](screenshots/img-results-page.jpg)
 
-Without global `turbo`, use your package manager:
+---
 
-```sh
-cd my-turborepo
-npx turbo dev
-pnpm exec turbo dev
-pnpm exec turbo dev
-```
+## Getting Started
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+### Prerequisites
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+- Node.js ≥ 18, pnpm
+- Python ≥ 3.12, uv
+
+### Install
 
 ```sh
-turbo dev --filter=web
+pnpm install
 ```
 
-Without global `turbo`:
+### Run (all apps in parallel)
 
 ```sh
-npx turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
+pnpm dev
 ```
 
-### Remote Caching
+This starts:
+- `apps/web` — dashboard at `http://localhost:3000`
+- `apps/engine` — belief engine WebSocket at `ws://localhost:8000`
+- `apps/simulator` — scenario simulator WebSocket at `ws://localhost:8001`
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+### Engine only
 
 ```sh
-cd my-turborepo
-turbo login
+cd apps/engine
+uv run python -m engine
 ```
 
-Without global `turbo`, use your package manager:
+### Simulator only
 
 ```sh
-cd my-turborepo
-npx turbo login
-pnpm exec turbo login
-pnpm exec turbo login
+cd apps/simulator
+uv run python main.py
 ```
 
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
+---
 
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
+## Project Structure
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
+```
+.
+├── apps/
+│   ├── engine/          # Python belief engine (FastAPI + WebSocket)
+│   │   └── src/engine/
+│   │       ├── core/    # BeliefEngine, DetectionState, OutputFormatter, StateStore
+│   │       └── identifiers/  # Pluggable identifier implementations
+│   ├── simulator/       # Python scenario simulator
+│   │   └── scenarios/   # YAML scenario files
+│   └── web/             # Next.js dashboard
+│       └── src/
+│           ├── components/session/   # Session UI (EnginePanel, LiveTranscript, …)
+│           ├── lib/engine-client.ts  # WebSocket client with auto-reconnect
+│           └── store/session-store.ts
+├── arch/                # Architecture diagrams
+├── docs/                # Additional documentation
+│   └── simulator.md
+└── screenshots/         # UI screenshots
 ```
 
-Without global `turbo`:
+---
 
-```sh
-npx turbo link
-pnpm exec turbo link
-pnpm exec turbo link
-```
+## Tuning
 
-## Useful Links
+Key constants are co-located with their logic and documented at the point of definition:
 
-Learn more about the power of Turborepo:
+| Constant | File | Default | Purpose |
+|---|---|---|---|
+| `MIN_ELAPSED_SECONDS` | `detection_state.py` | `20.0 s` | Minimum session time before any candidate is named |
+| `MIN_EVIDENCE_PIECES` | `detection_state.py` | `3` | Minimum total evidence entries across all participants |
+| `INSUFFICIENT_EVIDENCE_THRESHOLD` | `output_formatter.py` | `0.35` | Minimum probability to be included in `possible_candidate_ids` |
+| `CONFIDENT_THRESHOLD` | `output_formatter.py` | `0.55` | Minimum probability for a single-candidate confident pick |
+| `AMBIGUITY_MARGIN` | `output_formatter.py` | `0.15` | Minimum gap between leader and runner-up for a clean pick |
+| `STABLE_ENTRY_STREAK` | `detection_state.py` | `2` | Consecutive qualifying snapshots to enter `stable_candidate` |
+| `STABLE_EXIT_THRESHOLD` | `detection_state.py` | `0.45` | Exit bar (lower than entry — hysteresis to prevent flapping) |
+| `NO_EVIDENCE_BASELINE_LOGIT` | `belief_engine.py` | `-1.5` | Softmax input for participants with zero evidence (prevents 100% from being the only element in the pool) |
 
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+---
+
+## Further Reading
+
+- [Simulator docs](docs/simulator.md)
+- [Scenario authoring guide](apps/simulator/docs/SCENARIO_AUTHORING.md)

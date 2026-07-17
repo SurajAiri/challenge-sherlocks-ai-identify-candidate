@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BrainCircuit, ChevronDown, History, RefreshCw } from "lucide-react";
+import { BrainCircuit, ChevronDown, History, RefreshCw, Telescope } from "lucide-react";
 
 import { StatusDot, type StatusTone } from "@/components/status-dot";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,10 @@ const STATUS_LABEL: Record<EngineStatus, string> = {
  * set, the full ranked probability pool, the detection state, and the
  * evidence trail behind the leading hypothesis. Until the first
  * message arrives, everything falls back to an em dash.
+ *
+ * During the EXPLORING warmup phase (see detection_state.py) the panel
+ * shows a dedicated banner instead of Candidate/Confidence/Reasoning
+ * rows, because no candidate has been named yet by design.
  */
 export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
   const status = useSessionStore((s) => s.engineStatus);
@@ -41,20 +45,27 @@ export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
 
   const displayName = (pid: string) => participants[pid]?.displayName ?? pid;
 
+  const isExploring = latest?.detectionState === "exploring";
+
   // The engine's verdict block is driven by possibleCandidateIds:
-  // [] = still searching, 1 = confident pick, >1 = ambiguous between them.
+  // [] = still searching/exploring, 1 = confident pick, >1 = ambiguous.
   const possibleNames = latest?.possibleCandidateIds.map(displayName) ?? [];
-  const candidateName = latest?.candidateParticipantId ? displayName(latest.candidateParticipantId) : null;
+  const candidateName = latest?.candidateParticipantId
+    ? displayName(latest.candidateParticipantId)
+    : null;
   const candidateLabel = candidateName
     ? candidateName
     : possibleNames.length > 1
       ? possibleNames.join(" / ")
       : null;
 
-  const canReconnect = onReconnect && (status === "disconnected" || status === "error" || status === "idle");
+  const canReconnect =
+    onReconnect &&
+    (status === "disconnected" || status === "error" || status === "idle");
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-sm font-medium">
           <BrainCircuit className="size-4 text-[var(--accent-signal)]" />
@@ -76,42 +87,67 @@ export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
         </div>
       </div>
 
-      <dl className="flex flex-col gap-2.5 text-sm">
-        <Row label="Candidate" value={candidateLabel ?? "—"} mono={!candidateLabel} />
-        <Row
-          label="Confidence"
-          value={
-            latest?.confidence != null ? (
-              <ConfidenceMeter value={latest.confidence} />
-            ) : (
-              "—"
-            )
-          }
-        />
-        {latest && (
-          <Row
-            label="State"
-            value={<span className="font-mono text-xs">{latest.detectionState}</span>}
-          />
-        )}
-        <div>
-          <dt className="text-xs text-muted-foreground">Reasoning</dt>
-          <dd className="mt-0.5 text-sm text-foreground/90">
-            {latest?.reasoning ?? <span className="text-muted-foreground">—</span>}
-          </dd>
+      {/* EXPLORING warmup banner */}
+      {isExploring && latest ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-start gap-2.5 rounded-lg border border-blue-500/20 bg-blue-500/8 px-3 py-2.5">
+            <Telescope className="mt-0.5 size-4 shrink-0 animate-pulse text-blue-400" />
+            <div className="flex flex-col gap-0.5">
+              <p className="text-xs font-medium text-blue-300">Exploring…</p>
+              <p className="text-[0.7rem] leading-snug text-blue-300/70">
+                Gathering initial signal. The engine won&apos;t name a candidate until
+                enough time and evidence have accumulated.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">State</span>
+            <DetectionStateBadge state="exploring" />
+          </div>
         </div>
-      </dl>
+      ) : (
+        /* Normal candidate / confidence / reasoning rows */
+        <dl className="flex flex-col gap-2.5 text-sm">
+          <Row label="Candidate" value={candidateLabel ?? "—"} mono={!candidateLabel} />
+          <Row
+            label="Confidence"
+            value={
+              latest?.confidence != null ? (
+                <ConfidenceMeter value={latest.confidence} />
+              ) : (
+                "—"
+              )
+            }
+          />
+          {latest && (
+            <Row
+              label="State"
+              value={<DetectionStateBadge state={latest.detectionState} />}
+            />
+          )}
+          <div>
+            <dt className="text-xs text-muted-foreground">Reasoning</dt>
+            <dd className="mt-0.5 text-sm text-foreground/90">
+              {latest?.reasoning ?? <span className="text-muted-foreground">—</span>}
+            </dd>
+          </div>
+        </dl>
+      )}
 
+      {/* Probability bar chart — visible in ALL states, including warmup,
+          so the user can watch signal building even before a candidate is named */}
       {latest && latest.probabilityBeingCandidate.length > 0 && (
         <div className="border-t border-border pt-2">
-          <p className="mb-1.5 text-xs text-muted-foreground">Candidate probabilities</p>
+          <p className="mb-1.5 text-xs text-muted-foreground">
+            {isExploring ? "Signal building (no candidate named yet)" : "Candidate probabilities"}
+          </p>
           <ul className="flex flex-col gap-1.5">
             {latest.probabilityBeingCandidate.map(([pid, p]) => (
               <li key={pid} className="flex items-center gap-2 text-xs">
                 <span
                   className={cn(
                     "min-w-0 flex-1 truncate",
-                    latest.possibleCandidateIds.includes(pid)
+                    !isExploring && latest.possibleCandidateIds.includes(pid)
                       ? "font-medium text-foreground"
                       : "text-muted-foreground"
                   )}
@@ -121,8 +157,14 @@ export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
                 <span className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
                   <span
                     className={cn(
-                      "block h-full rounded-full",
-                      p >= 0.7 ? "bg-emerald-400" : p >= 0.4 ? "bg-amber-400" : "bg-muted-foreground/50"
+                      "block h-full rounded-full transition-all duration-500",
+                      isExploring
+                        ? "bg-blue-400/50"
+                        : p >= 0.7
+                          ? "bg-emerald-400"
+                          : p >= 0.4
+                            ? "bg-amber-400"
+                            : "bg-muted-foreground/50"
                     )}
                     style={{ width: `${Math.round(p * 100)}%` }}
                   />
@@ -136,6 +178,7 @@ export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
         </div>
       )}
 
+      {/* Prediction history */}
       {history.length > 0 && (
         <div className="border-t border-border pt-2">
           <button
@@ -146,17 +189,35 @@ export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
             <span className="flex items-center gap-1.5">
               <History className="size-3.5" /> Prediction history ({history.length})
             </span>
-            <ChevronDown className={cn("size-3.5 transition-transform", showHistory && "rotate-180")} />
+            <ChevronDown
+              className={cn("size-3.5 transition-transform", showHistory && "rotate-180")}
+            />
           </button>
           {showHistory && (
             <ul className="scrollbar-thin mt-2 flex max-h-40 flex-col gap-1.5 overflow-y-auto font-mono text-[0.7rem] text-muted-foreground">
               {[...history].reverse().map((p) => (
                 <li key={p.id} className="flex items-center gap-2">
                   <span className="w-10 shrink-0">{p.t.toFixed(1)}s</span>
-                  <span className="min-w-0 flex-1 truncate">
-                    {p.candidateParticipantId ? participants[p.candidateParticipantId]?.displayName ?? p.candidateParticipantId : "—"}
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate",
+                      p.detectionState === "exploring" && "italic text-blue-400/70"
+                    )}
+                  >
+                    {p.detectionState === "exploring"
+                      ? "exploring…"
+                      : p.candidateParticipantId
+                        ? (participants[p.candidateParticipantId]?.displayName ??
+                          p.candidateParticipantId)
+                        : "—"}
                   </span>
-                  <span>{p.confidence != null ? `${Math.round(p.confidence * 100)}%` : "—"}</span>
+                  <span>
+                    {p.detectionState === "exploring"
+                      ? ""
+                      : p.confidence != null
+                        ? `${Math.round(p.confidence * 100)}%`
+                        : "—"}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -164,6 +225,7 @@ export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
         </div>
       )}
 
+      {/* Raw message toggle */}
       {latest && (
         <div className="border-t border-border pt-2">
           <button
@@ -184,7 +246,15 @@ export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
+function Row({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between">
       <dt className="text-xs text-muted-foreground">{label}</dt>
@@ -195,15 +265,55 @@ function Row({ label, value, mono }: { label: string; value: React.ReactNode; mo
   );
 }
 
+const DETECTION_STATE_STYLES: Record<string, { label: string; className: string }> = {
+  exploring: {
+    label: "exploring",
+    className: "bg-blue-500/15 text-blue-300",
+  },
+  searching: {
+    label: "searching",
+    className: "bg-muted text-muted-foreground",
+  },
+  likely_candidate: {
+    label: "likely candidate",
+    className: "bg-amber-500/15 text-amber-300",
+  },
+  stable_candidate: {
+    label: "stable candidate",
+    className: "bg-emerald-500/15 text-emerald-300",
+  },
+  lost_candidate: {
+    label: "lost candidate",
+    className: "bg-destructive/15 text-destructive",
+  },
+};
+
+function DetectionStateBadge({ state }: { state: string }) {
+  const style = DETECTION_STATE_STYLES[state] ?? {
+    label: state,
+    className: "bg-muted text-muted-foreground",
+  };
+  return (
+    <span className={cn("rounded-full px-2 py-0.5 font-mono text-[0.65rem]", style.className)}>
+      {style.label}
+    </span>
+  );
+}
+
 function ConfidenceMeter({ value }: { value: number }) {
   const pct = Math.max(0, Math.min(1, value)) * 100;
-  const tone = pct >= 70 ? "bg-emerald-400" : pct >= 40 ? "bg-amber-400" : "bg-destructive";
+  const tone =
+    pct >= 70 ? "bg-emerald-400" : pct >= 40 ? "bg-amber-400" : "bg-destructive";
   return (
     <span className="flex items-center gap-2">
       <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-        <span className={cn("block h-full rounded-full", tone)} style={{ width: `${pct}%` }} />
+        <span
+          className={cn("block h-full rounded-full", tone)}
+          style={{ width: `${pct}%` }}
+        />
       </span>
       <span className="font-mono text-xs">{Math.round(pct)}%</span>
     </span>
   );
 }
+

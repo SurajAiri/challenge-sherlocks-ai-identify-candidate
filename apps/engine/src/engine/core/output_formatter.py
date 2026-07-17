@@ -9,9 +9,18 @@ track); `probability_not_candidate` rides along independently, per the
 
 `possible_candidate_ids` is deliberately NOT always length 1. The
 system may not skip/misname the real candidate, so instead of forcing
-a single guess whenever evidence is thin, three states are possible:
+a single guess whenever evidence is thin, four states are possible:
 
-  - []                    - not enough evidence yet ("insufficient_evidence")
+  - []   (EXPLORING)      - the warmup gate hasn't cleared yet; the
+                            engine explicitly refuses to name anyone
+                            before MIN_ELAPSED_SECONDS and
+                            MIN_EVIDENCE_PIECES are both satisfied
+                            (see detection_state.py). Probabilities
+                            are still sent so the dashboard can show
+                            the live bar chart, but candidate_ids=[]
+                            until we're ready.
+  - []   (SEARCHING)      - warmup cleared but no participant clears
+                            INSUFFICIENT_EVIDENCE_THRESHOLD.
   - [single_id]           - one participant clearly AND durably leads
                             ("confident") - see below.
   - [id, id, ...]         - top few are within AMBIGUITY_MARGIN of each
@@ -80,6 +89,15 @@ def _select_possible_candidates(
     detection_state: "DetectionState",
 ) -> list[str]:
     from engine.core.detection_state import DetectionState as _DetectionState
+
+    # Hard gate: during the EXPLORING warmup the engine has not yet
+    # seen enough time + evidence to trust the softmax order. Return []
+    # unconditionally so the dashboard always shows "exploring" rather
+    # than a random early-mover. Probabilities are still emitted (the
+    # caller builds probability_being_candidate before this function
+    # runs) so the dashboard's bar chart stays live during the warmup.
+    if detection_state == _DetectionState.EXPLORING:
+        return []
 
     if not participants:
         return []
