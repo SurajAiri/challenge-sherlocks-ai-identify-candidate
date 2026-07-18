@@ -9,6 +9,12 @@ Before you begin, ensure you have the following installed on your machine:
 - **Node.js** (v18 or higher) and **pnpm**
 - **Python** (v3.12 or higher) and **uv**
 
+## 1.1 Environment variable configuration
+- for each `Engine`, `Simulator` and `Web` check `example.env` and create env file.
+- Note: for `Simulator` currently env file
+- for: web env file id `.env.local`
+- for: engine `.env` file
+
 ## 2. Installation
 
 First, install the necessary dependencies from the root directory of the project:

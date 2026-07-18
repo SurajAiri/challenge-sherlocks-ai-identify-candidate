@@ -37,8 +37,9 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
   const engineSocketRef = useRef<EngineSocket | null>(null);
   const initializedFor = useRef<string | null>(null);
 
-  // Reset session state exactly once per scenario, and keep one Engine
-  // socket alive for the lifetime of this page.
+  // Create the Engine socket once per scenario, but do NOT connect yet.
+  // Connection happens in handleStart so the engine only sees frames from
+  // an active run, not stale reconnects from page reloads.
   useEffect(() => {
     if (!scenario) return;
     if (initializedFor.current === scenario.id) return;
@@ -49,7 +50,7 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
     engineSocketRef.current = socket;
     const offStatus = socket.onStatus(setEngineStatus);
     const offMessage = socket.onMessage(handleEngineMessage);
-    socket.connect();
+    // Do NOT call socket.connect() here — connect on Start, close on Stop/Done.
 
     return () => {
       offStatus();
@@ -85,6 +86,9 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
     if (runStatus === "completed" || runStatus === "error") {
       startSession({ libraryId: scenario!.id, path: scenario!.path, name: scenario!.name });
     }
+    // Connect the engine socket now (deferred from mount so page reloads
+    // don't cause a spurious connection before the user hits Start).
+    engineSocketRef.current?.connect();
     setRunStatus("connecting");
     const controller = startSimulatorRun(
       scenario!.path,
@@ -93,11 +97,17 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
         onFrame: (frame) => {
           handleSimFrame(frame);
           // Forward every frame to the Engine, same shape it arrived in.
-          // Silently a no-op until the Engine exists / is connected.
           engineSocketRef.current?.send(frame);
         },
-        onDone: () => setRunStatus("completed"),
-        onError: (message) => setRunStatus("error", message),
+        onDone: () => {
+          setRunStatus("completed");
+          // Close the engine connection cleanly when the run finishes.
+          engineSocketRef.current?.close();
+        },
+        onError: (message) => {
+          setRunStatus("error", message);
+          engineSocketRef.current?.close();
+        },
       },
       runSpeedMultiplier
     );
@@ -108,6 +118,8 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
     runAbort?.abort();
     setRunAbort(null);
     setRunStatus("idle");
+    // Close the engine connection when the user manually stops the run.
+    engineSocketRef.current?.close();
   }
 
   function handleReconnect() {

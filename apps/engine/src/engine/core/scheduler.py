@@ -41,6 +41,9 @@ class SchedulingTier(str, Enum):
 
 
 TIER_BY_STATE: dict[DetectionState, SchedulingTier] = {
+    # EXPLORING is warmup - we want maximum signal while gathering initial
+    # evidence, so treat it the same as SEARCHING (cast the widest net).
+    DetectionState.EXPLORING: SchedulingTier.AGGRESSIVE,
     DetectionState.SEARCHING: SchedulingTier.AGGRESSIVE,
     DetectionState.LIKELY_CANDIDATE: SchedulingTier.BALANCED,
     DetectionState.LOST_CANDIDATE: SchedulingTier.BALANCED,
