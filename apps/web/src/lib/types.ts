@@ -151,5 +151,9 @@ export const scenarioLibraryEntrySchema = z.object({
   expectedEvidence: z.record(z.string(), z.array(z.string())).default({}),
   groundTruthParticipantId: z.string().nullable().optional(),
   addedAt: z.number(),
+  /** Import lifecycle: "pending" while background eval runs, "ready" on success, "error" on failure. */
+  status: z.enum(["pending", "ready", "error"]).default("ready"),
+  /** Set when status === "error". Human-readable reason from the simulator. */
+  importError: z.string().optional(),
 });
 export type ScenarioLibraryEntry = z.infer<typeof scenarioLibraryEntrySchema>;

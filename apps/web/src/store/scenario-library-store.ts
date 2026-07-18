@@ -10,6 +10,9 @@ interface ScenarioLibraryState {
   /** Adds a scenario, deduped by absolute path. Returns the existing
    * entry if the path is already present instead of adding a dupe. */
   addScenario: (entry: Omit<ScenarioLibraryEntry, "id" | "addedAt">) => ScenarioLibraryEntry;
+  /** Patches an existing scenario entry by id. Used to transition
+   * a "pending" entry to "ready" or "error" after background evaluation. */
+  updateScenario: (id: string, patch: Partial<Omit<ScenarioLibraryEntry, "id" | "addedAt">>) => void;
   removeScenario: (id: string) => void;
   getById: (id: string) => ScenarioLibraryEntry | undefined;
 }
@@ -31,6 +34,13 @@ export const useScenarioLibraryStore = create<ScenarioLibraryState>()(
         set((state) => ({ scenarios: [created, ...state.scenarios] }));
         return created;
       },
+
+      updateScenario: (id, patch) =>
+        set((state) => ({
+          scenarios: state.scenarios.map((s) =>
+            s.id === id ? { ...s, ...patch } : s
+          ),
+        })),
 
       removeScenario: (id) =>
         set((state) => ({ scenarios: state.scenarios.filter((s) => s.id !== id) })),
