@@ -1,0 +1,160 @@
+metadata:
+  name: "Candidate never turns on webcam"
+  slug: "webcam_never_on"
+  description: >
+    The candidate keeps their camera off for the entire call (a
+    common, legitimate preference, not inherently suspicious on its
+    own) while the interviewer's webcam stays on throughout. There is
+    no `webcam_on`/`webcam_off` pair authored for the candidate at
+    all - not an off-then-never-on-again pattern, simply absent from
+    the timeline entirely. Identification has to rest entirely on
+    audio, transcript, and turn-taking signals, with zero visual
+    evidence for the candidate. A system that requires webcam frames
+    to run its identification pipeline at all should still produce a
+    confident answer here, just without any video-derived evidence
+    contributing to it - this should not be treated as an error case.
+
+controls:
+  speed_multiplier: 20.0
+  generate_audio: true
+
+context:
+  candidate_name: "Sofia Marchetti"
+  candidate_email: "sofia.marchetti@example.com"
+  interviewer_names: ["Owen Baxter"]
+  calendar_invite:
+    organizer: "Owen Baxter"
+    title: "QA Engineer Interview - Sofia Marchetti"
+  interview_schedule:
+    start: "2026-07-21T09:00:00"
+    duration_minutes: 30
+
+participants:
+  p_owen:
+    display_name: "Owen Baxter"
+    role_hint: interviewer
+  p_sofia:
+    display_name: "Sofia M."
+    role_hint: candidate
+
+timeline:
+  - type: participant_join
+    participant_id: p_owen
+    data: { display_name: "Owen Baxter" }
+  - type: participant_join
+    participant_id: p_sofia
+    data: { display_name: "Sofia M." }
+
+  - type: webcam_on
+    participant_id: p_owen
+    data: { path: "media/interviewer_webcam.png" }
+
+  - type: silence
+    data: { duration: 2 }
+
+  - type: speaking_start
+    participant_id: p_owen
+  - type: audio_stream_on
+    participant_id: p_owen
+    data:
+      {
+        text: "Hi Sofia, no worries about the camera. Let's start - can you walk me through your testing process for a new feature?",
+      }
+  - type: transcript_segment
+    participant_id: p_owen
+    data:
+      {
+        text: "Hi Sofia, no worries about the camera. Let's start - can you walk me through your testing process for a new feature?",
+      }
+  - type: speaking_end
+    participant_id: p_owen
+
+  - type: speaking_start
+    participant_id: p_sofia
+  - type: audio_stream_on
+    participant_id: p_sofia
+    data:
+      {
+        text: "Sure. I usually start with the acceptance criteria, write test cases covering edge cases and negative paths, then automate the regression-prone ones.",
+      }
+  - type: transcript_segment
+    participant_id: p_sofia
+    data:
+      {
+        text: "Sure. I usually start with the acceptance criteria, write test cases covering edge cases and negative paths, then automate the regression-prone ones.",
+      }
+  - type: speaking_end
+    participant_id: p_sofia
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_owen
+  - type: audio_stream_on
+    participant_id: p_owen
+    data:
+      {
+        text: "How do you prioritize what to automate versus test manually?",
+      }
+  - type: transcript_segment
+    participant_id: p_owen
+    data:
+      {
+        text: "How do you prioritize what to automate versus test manually?",
+      }
+  - type: speaking_end
+    participant_id: p_owen
+
+  - type: speaking_start
+    participant_id: p_sofia
+  - type: audio_stream_on
+    participant_id: p_sofia
+    data:
+      {
+        text: "I weigh how often a path runs and how costly a regression there would be. High-traffic, high-risk flows get automated first, one-off exploratory checks stay manual.",
+      }
+  - type: transcript_segment
+    participant_id: p_sofia
+    data:
+      {
+        text: "I weigh how often a path runs and how costly a regression there would be. High-traffic, high-risk flows get automated first, one-off exploratory checks stay manual.",
+      }
+  - type: speaking_end
+    participant_id: p_sofia
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_owen
+  - type: audio_stream_on
+    participant_id: p_owen
+    data: { text: "Great, that's everything I needed. Thanks Sofia." }
+  - type: transcript_segment
+    participant_id: p_owen
+    data: { text: "Great, that's everything I needed. Thanks Sofia." }
+  - type: speaking_end
+    participant_id: p_owen
+
+  - type: webcam_off
+    participant_id: p_owen
+
+  - type: participant_leave
+    participant_id: p_sofia
+  - type: participant_leave
+    participant_id: p_owen
+
+evaluation:
+  ground_truth_participant_id: p_sofia
+  difficulty: 2
+  challenging_points:
+    - "No webcam_on/webcam_off pair is ever authored for p_sofia at all - this must not be confused with a webcam_off-with-no-preceding-on error case, nor should the absence of video evidence be treated as suspicious or as a reason to lower confidence relative to an otherwise-identical scenario with video"
+    - "The interviewer explicitly acknowledges the camera being off in conversation, which is itself a mild corroborating signal that this is expected/normal rather than an anomaly"
+  expected_evidence:
+    primary:
+      - "p_sofia answers every substantive question and never asks one back"
+      - "p_sofia's display name partially matches context.candidate_name ('Sofia M.' vs. 'Sofia Marchetti')"
+    secondary:
+      - "The interviewer's opening line references the camera being off in a way consistent with a pre-arranged or unremarkable preference, not a technical failure"
+    misleading: []

@@ -1,0 +1,167 @@
+metadata:
+  name: "Coarse video sampling, fine-grained audio"
+  slug: "video_degraded_audio_clear"
+  description: >
+    Deliberately sets controls.video_fps very low (0.5, i.e. one
+    frame every two seconds) while keeping controls.audio_chunk_ms
+    fine-grained (100ms), simulating a candidate on a bandwidth-
+    constrained connection where video degrades but audio stays
+    clean. Content-wise this is a simple nickname-mismatch case
+    layered on top - the point isn't the identity puzzle, it's
+    testing whether an Engine's video-dependent signals (face
+    presence, webcam-based liveness/deepfake checks) degrade
+    gracefully and confidence estimation correctly down-weights the
+    video modality without discarding the still-solid audio and
+    transcript evidence.
+
+controls:
+  speed_multiplier: 20.0
+  generate_audio: true
+  video_fps: 0.5
+  audio_chunk_ms: 100
+
+context:
+  candidate_name: "Aiden Brooks"
+  candidate_email: "aiden.brooks@example.com"
+  interviewer_names: ["Nina Kowalski"]
+  calendar_invite:
+    organizer: "Nina Kowalski"
+    title: "Backend Engineer Interview - Aiden Brooks"
+  interview_schedule:
+    start: "2026-07-20T14:00:00"
+    duration_minutes: 30
+
+participants:
+  p_nina:
+    display_name: "Nina Kowalski"
+    role_hint: interviewer
+  p_dell:
+    display_name: "DESKTOP-7QK2P"
+    role_hint: candidate
+
+timeline:
+  - type: participant_join
+    participant_id: p_nina
+    data: { display_name: "Nina Kowalski" }
+  - type: participant_join
+    participant_id: p_dell
+    data: { display_name: "DESKTOP-7QK2P" }
+
+  - type: webcam_on
+    participant_id: p_nina
+    data: { path: "media/interviewer_webcam.png" }
+  - type: webcam_on
+    participant_id: p_dell
+    data: { path: "media/candidate_webcam.png" }
+
+  - type: silence
+    data: { duration: 2 }
+
+  - type: speaking_start
+    participant_id: p_nina
+  - type: audio_stream_on
+    participant_id: p_nina
+    data:
+      {
+        text: "Hi Aiden, thanks for joining - your video looks a little choppy on my end but I can hear you fine. Let's get started, tell me about your current role.",
+      }
+  - type: transcript_segment
+    participant_id: p_nina
+    data:
+      {
+        text: "Hi Aiden, thanks for joining - your video looks a little choppy on my end but I can hear you fine. Let's get started, tell me about your current role.",
+      }
+  - type: speaking_end
+    participant_id: p_nina
+
+  - type: speaking_start
+    participant_id: p_dell
+  - type: audio_stream_on
+    participant_id: p_dell
+    data:
+      {
+        text: "Sorry about that, my connection's been unstable today. I'm currently a backend engineer working on payment processing systems.",
+      }
+  - type: transcript_segment
+    participant_id: p_dell
+    data:
+      {
+        text: "Sorry about that, my connection's been unstable today. I'm currently a backend engineer working on payment processing systems.",
+      }
+  - type: speaking_end
+    participant_id: p_dell
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_nina
+  - type: audio_stream_on
+    participant_id: p_nina
+    data:
+      {
+        text: "No worries. How do you approach idempotency for payment retries?",
+      }
+  - type: transcript_segment
+    participant_id: p_nina
+    data:
+      {
+        text: "No worries. How do you approach idempotency for payment retries?",
+      }
+  - type: speaking_end
+    participant_id: p_nina
+
+  - type: speaking_start
+    participant_id: p_dell
+  - type: audio_stream_on
+    participant_id: p_dell
+    data:
+      {
+        text: "I use idempotency keys tied to the client request, store the result of the first successful attempt, and short-circuit any retry that matches an already-processed key.",
+      }
+  - type: transcript_segment
+    participant_id: p_dell
+    data:
+      {
+        text: "I use idempotency keys tied to the client request, store the result of the first successful attempt, and short-circuit any retry that matches an already-processed key.",
+      }
+  - type: speaking_end
+    participant_id: p_dell
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_nina
+  - type: audio_stream_on
+    participant_id: p_nina
+    data: { text: "Great answer, that covers what I needed. Thanks Aiden." }
+  - type: transcript_segment
+    participant_id: p_nina
+    data: { text: "Great answer, that covers what I needed. Thanks Aiden." }
+  - type: speaking_end
+    participant_id: p_nina
+
+  - type: webcam_off
+    participant_id: p_dell
+  - type: webcam_off
+    participant_id: p_nina
+
+  - type: participant_leave
+    participant_id: p_dell
+  - type: participant_leave
+    participant_id: p_nina
+
+evaluation:
+  ground_truth_participant_id: p_dell
+  difficulty: 2
+  challenging_points:
+    - "controls.video_fps (0.5) and controls.audio_chunk_ms (100) are set far apart from their defaults, in opposite directions, on purpose - this is the same scenario family as demo_clean's nickname mismatch but exists specifically to stress independent per-modality stream granularity rather than identity reasoning itself"
+    - "The interviewer's own dialogue narrates the degraded video ('your video looks a little choppy'), giving a text-level hint that corroborates the stream-level reality - a thorough system could cross-check transcript content against actual stream statistics"
+  expected_evidence:
+    primary:
+      - "p_dell answers every technical question and is addressed by first name ('Aiden') by the interviewer, matching context.candidate_name"
+    secondary:
+      - "The interviewer explicitly narrates degraded video quality in the transcript, consistent with the coarse video_fps setting"
+    misleading:
+      - "p_dell's display_name 'DESKTOP-7QK2P' has zero string overlap with context.candidate_name 'Aiden Brooks' and looks like an auto-generated machine hostname rather than any kind of human-chosen nickname"

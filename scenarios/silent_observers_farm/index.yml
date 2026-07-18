@@ -1,0 +1,196 @@
+metadata:
+  name: "Three silent observers, one clearly-named candidate"
+  slug: "silent_observers_farm"
+  description: >
+    Name-matching happens to work for the candidate here
+    (display_name matches context.candidate_name exactly), so this
+    scenario isn't about recovering identity from a mismatch - it's
+    about noise rejection. Three silent participants join under
+    generic, device-like, or corporate-sounding names ("iPad",
+    "Conference Room 4B", "Unknown"), never speak, never share a
+    screen, and never get addressed by name. A system should rank all
+    three low without needing special-case logic for each one - the
+    absence of any behavioral signal should be enough on its own,
+    independent of how odd or ordinary each observer's display name
+    looks.
+
+controls:
+  speed_multiplier: 20.0
+  generate_audio: true
+
+context:
+  candidate_name: "Fatima Nasser"
+  candidate_email: "fatima.nasser@example.com"
+  interviewer_names: ["Ben Foster"]
+  calendar_invite:
+    organizer: "Ben Foster"
+    title: "Data Engineer Interview - Fatima Nasser"
+  interview_schedule:
+    start: "2026-07-16T13:00:00"
+    duration_minutes: 30
+
+participants:
+  p_ben:
+    display_name: "Ben Foster"
+    role_hint: interviewer
+  p_fatima:
+    display_name: "Fatima Nasser"
+    role_hint: candidate
+  p_obs1:
+    display_name: "iPad"
+    role_hint: observer
+  p_obs2:
+    display_name: "Conference Room 4B"
+    role_hint: observer
+  p_obs3:
+    display_name: "Unknown"
+    role_hint: observer
+
+timeline:
+  - type: participant_join
+    participant_id: p_ben
+    data: { display_name: "Ben Foster" }
+  - type: participant_join
+    participant_id: p_obs1
+    data: { display_name: "iPad" }
+  - type: participant_join
+    participant_id: p_fatima
+    data: { display_name: "Fatima Nasser" }
+  - type: participant_join
+    participant_id: p_obs2
+    data: { display_name: "Conference Room 4B" }
+  - type: participant_join
+    participant_id: p_obs3
+    data: { display_name: "Unknown" }
+
+  - type: webcam_on
+    participant_id: p_ben
+    data: { path: "media/interviewer_webcam.png" }
+  - type: webcam_on
+    participant_id: p_fatima
+    data: { path: "media/candidate_webcam.png" }
+  - type: webcam_on
+    participant_id: p_obs2
+    data: { path: "media/observer_webcam.png" }
+
+  - type: silence
+    data: { duration: 2 }
+
+  - type: speaking_start
+    participant_id: p_ben
+  - type: audio_stream_on
+    participant_id: p_ben
+    data:
+      {
+        text: "Hi Fatima, thanks for joining. A couple of folks from the team are sitting in silently, hope that's alright. Let's start with your experience in data pipelines.",
+      }
+  - type: transcript_segment
+    participant_id: p_ben
+    data:
+      {
+        text: "Hi Fatima, thanks for joining. A couple of folks from the team are sitting in silently, hope that's alright. Let's start with your experience in data pipelines.",
+      }
+  - type: speaking_end
+    participant_id: p_ben
+
+  - type: speaking_start
+    participant_id: p_fatima
+  - type: audio_stream_on
+    participant_id: p_fatima
+    data:
+      {
+        text: "Of course. I've spent the last three years building batch and streaming pipelines with Airflow and Kafka, mostly for analytics workloads.",
+      }
+  - type: transcript_segment
+    participant_id: p_fatima
+    data:
+      {
+        text: "Of course. I've spent the last three years building batch and streaming pipelines with Airflow and Kafka, mostly for analytics workloads.",
+      }
+  - type: speaking_end
+    participant_id: p_fatima
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_ben
+  - type: audio_stream_on
+    participant_id: p_ben
+    data:
+      {
+        text: "Great. How would you handle a late-arriving event in a streaming aggregation job?",
+      }
+  - type: transcript_segment
+    participant_id: p_ben
+    data:
+      {
+        text: "Great. How would you handle a late-arriving event in a streaming aggregation job?",
+      }
+  - type: speaking_end
+    participant_id: p_ben
+
+  - type: speaking_start
+    participant_id: p_fatima
+  - type: audio_stream_on
+    participant_id: p_fatima
+    data:
+      {
+        text: "I'd use watermarking with an allowed lateness window, and route anything beyond that to a dead-letter path for reprocessing.",
+      }
+  - type: transcript_segment
+    participant_id: p_fatima
+    data:
+      {
+        text: "I'd use watermarking with an allowed lateness window, and route anything beyond that to a dead-letter path for reprocessing.",
+      }
+  - type: speaking_end
+    participant_id: p_fatima
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_ben
+  - type: audio_stream_on
+    participant_id: p_ben
+    data: { text: "Perfect, that's everything I needed. Thanks for your time." }
+  - type: transcript_segment
+    participant_id: p_ben
+    data: { text: "Perfect, that's everything I needed. Thanks for your time." }
+  - type: speaking_end
+    participant_id: p_ben
+
+  - type: webcam_off
+    participant_id: p_fatima
+  - type: webcam_off
+    participant_id: p_ben
+  - type: webcam_off
+    participant_id: p_obs2
+
+  - type: participant_leave
+    participant_id: p_obs1
+  - type: participant_leave
+    participant_id: p_obs3
+  - type: participant_leave
+    participant_id: p_fatima
+  - type: participant_leave
+    participant_id: p_obs2
+  - type: participant_leave
+    participant_id: p_ben
+
+evaluation:
+  ground_truth_participant_id: p_fatima
+  difficulty: 2
+  challenging_points:
+    - "Three silent observers with very different display-name flavors (a device name, a physical room name, and a literal 'Unknown') all have to be ranked low uniformly, without hand-tuned rules for each pattern"
+    - "One observer (p_obs2, 'Conference Room 4B') even turns its webcam on with a static image, testing whether webcam-on alone is mistaken for engagement"
+    - "The candidate name-matches cleanly here on purpose - this scenario isolates noise rejection from name-mismatch handling, which is covered elsewhere"
+  expected_evidence:
+    primary:
+      - "p_fatima is the only non-interviewer participant who ever speaks, and every utterance is a direct answer to Ben's questions"
+      - "p_fatima's display_name matches context.candidate_name exactly"
+    secondary: []
+    misleading:
+      - "p_obs2 turns its webcam on despite never speaking, which could be misread as active participation if webcam state alone is used as an engagement proxy"
+      - "p_obs1 and p_obs3's display names ('iPad', 'Unknown') superficially resemble the kind of device-name mismatch that marks a candidate in other scenarios - here they mark nothing at all, since they never speak"

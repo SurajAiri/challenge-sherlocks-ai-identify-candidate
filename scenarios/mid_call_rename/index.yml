@@ -1,0 +1,169 @@
+metadata:
+  name: "Candidate renames mid-call after being asked directly"
+  slug: "mid_call_rename"
+  description: >
+    The candidate joins under a generic placeholder name ("Guest"),
+    is asked directly by the interviewer to confirm who they are, and
+    only then issues a participant_update with their real name -
+    about a third of the way into the call. Unlike demo_clean (where
+    the rename happens near the very end, after most of the
+    conversation), here the rename happens early, so most of the
+    session runs with the correct identity already confirmed by name
+    - the interesting window is the short stretch *before* the
+    rename, where only behavioral and (once spoken) verbal
+    self-identification evidence exists.
+
+controls:
+  speed_multiplier: 20.0
+  generate_audio: true
+
+context:
+  candidate_name: "Emma Wilson"
+  candidate_email: "emma.wilson@example.com"
+  interviewer_names: ["Chris Owusu"]
+  calendar_invite:
+    organizer: "Chris Owusu"
+    title: "Product Designer Interview - Emma Wilson"
+  interview_schedule:
+    start: "2026-07-17T11:00:00"
+    duration_minutes: 30
+
+participants:
+  p_chris:
+    display_name: "Chris Owusu"
+    role_hint: interviewer
+  p_guest:
+    display_name: "Guest"
+    role_hint: candidate
+
+timeline:
+  - type: participant_join
+    participant_id: p_chris
+    data: { display_name: "Chris Owusu" }
+  - type: participant_join
+    participant_id: p_guest
+    data: { display_name: "Guest" }
+
+  - type: webcam_on
+    participant_id: p_chris
+    data: { path: "media/interviewer_webcam.png" }
+  - type: webcam_on
+    participant_id: p_guest
+    data: { path: "media/candidate_webcam.png" }
+
+  - type: silence
+    data: { duration: 2 }
+
+  - type: speaking_start
+    participant_id: p_chris
+  - type: audio_stream_on
+    participant_id: p_chris
+    data:
+      {
+        text: "Hi there - I see you joined as just 'Guest'. Could you confirm your name for me before we start?",
+      }
+  - type: transcript_segment
+    participant_id: p_chris
+    data:
+      {
+        text: "Hi there - I see you joined as just 'Guest'. Could you confirm your name for me before we start?",
+      }
+  - type: speaking_end
+    participant_id: p_chris
+
+  - type: speaking_start
+    participant_id: p_guest
+  - type: audio_stream_on
+    participant_id: p_guest
+    data:
+      {
+        text: "Oh sorry, yes, I'm Emma Wilson. My laptop must be on some old shared login, one second.",
+      }
+  - type: transcript_segment
+    participant_id: p_guest
+    data:
+      {
+        text: "Oh sorry, yes, I'm Emma Wilson. My laptop must be on some old shared login, one second.",
+      }
+  - type: speaking_end
+    participant_id: p_guest
+
+  - type: participant_update
+    participant_id: p_guest
+    data: { display_name: "Emma Wilson" }
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_chris
+  - type: audio_stream_on
+    participant_id: p_chris
+    data:
+      {
+        text: "No problem at all. So, walk me through a design project you're proud of.",
+      }
+  - type: transcript_segment
+    participant_id: p_chris
+    data:
+      {
+        text: "No problem at all. So, walk me through a design project you're proud of.",
+      }
+  - type: speaking_end
+    participant_id: p_chris
+
+  - type: speaking_start
+    participant_id: p_guest
+  - type: audio_stream_on
+    participant_id: p_guest
+    data:
+      {
+        text: "Sure, I led the redesign of our onboarding flow, which cut drop-off by about twenty five percent after a few rounds of user testing.",
+      }
+  - type: transcript_segment
+    participant_id: p_guest
+    data:
+      {
+        text: "Sure, I led the redesign of our onboarding flow, which cut drop-off by about twenty five percent after a few rounds of user testing.",
+      }
+  - type: speaking_end
+    participant_id: p_guest
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_chris
+  - type: audio_stream_on
+    participant_id: p_chris
+    data: { text: "Great, that's exactly what I wanted to hear. Thanks Emma." }
+  - type: transcript_segment
+    participant_id: p_chris
+    data: { text: "Great, that's exactly what I wanted to hear. Thanks Emma." }
+  - type: speaking_end
+    participant_id: p_chris
+
+  - type: webcam_off
+    participant_id: p_guest
+  - type: webcam_off
+    participant_id: p_chris
+
+  - type: participant_leave
+    participant_id: p_guest
+  - type: participant_leave
+    participant_id: p_chris
+
+evaluation:
+  ground_truth_participant_id: p_guest
+  difficulty: 2
+  challenging_points:
+    - "The candidate's identity is unresolvable by name alone for a short window at the very start ('Guest' has zero overlap with context.candidate_name) - a system snapshotting identity only once at join time, rather than staying open to participant_update, would carry the wrong (or no) name for the rest of the session"
+    - "The rename is prompted directly by the interviewer verbally asking who's on the call, which is itself a usable signal distinct from the participant_update event alone - the transcript segment where the guest says 'I'm Emma Wilson' arrives one tick before the formal rename event and should already be usable evidence"
+  expected_evidence:
+    primary:
+      - "p_guest's participant_update sets display_name to 'Emma Wilson', matching context.candidate_name exactly, early in the session"
+      - "p_guest verbally self-identifies as 'Emma Wilson' in a transcript_segment even before the participant_update event fires"
+    secondary:
+      - "p_guest answers every substantive question and is addressed by the confirmed first name later in the call"
+    misleading:
+      - "p_guest's initial display_name 'Guest' carries no information at all - it doesn't even have the device-name pattern ('MacBook Pro', 'iPhone') that at least hints at 'personal device, therefore maybe a candidate'"

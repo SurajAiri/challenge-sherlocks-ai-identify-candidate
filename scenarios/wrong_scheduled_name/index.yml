@@ -1,0 +1,179 @@
+metadata:
+  name: "Wrong candidate name in scheduling system"
+  slug: "wrong_scheduled_name"
+  description: >
+    HR's scheduling system has the wrong candidate name entirely -
+    context.candidate_name ("Priya Sharma") does not belong to anyone
+    on the call and never appears in any display_name, transcript
+    line, or participant_update. The actual candidate ("David Kim")
+    can only be identified behaviorally: he is the one being
+    interviewed, answering technical questions, and sharing his
+    screen. A system that anchors on string-matching candidate_name
+    against display names will fail this scenario outright and must
+    fall back to behavioral evidence.
+
+controls:
+  speed_multiplier: 20.0
+  generate_audio: true
+
+context:
+  candidate_name: "Priya Sharma"
+  candidate_email: "priya.sharma@example.com"
+  interviewer_names: ["Maria Chen"]
+  calendar_invite:
+    organizer: "Maria Chen"
+    title: "Frontend Engineer Interview - Priya Sharma"
+  interview_schedule:
+    start: "2026-07-14T15:00:00"
+    duration_minutes: 30
+
+participants:
+  p_maria:
+    display_name: "Maria Chen"
+    role_hint: interviewer
+  p_david:
+    display_name: "David Kim"
+    role_hint: candidate
+
+timeline:
+  - type: participant_join
+    participant_id: p_maria
+    data: { display_name: "Maria Chen" }
+  - type: participant_join
+    participant_id: p_david
+    data: { display_name: "David Kim" }
+
+  - type: webcam_on
+    participant_id: p_maria
+    data: { path: "media/interviewer_webcam.png" }
+  - type: webcam_on
+    participant_id: p_david
+    data: { path: "media/candidate_webcam.png" }
+
+  - type: silence
+    data: { duration: 2 }
+
+  - type: speaking_start
+    participant_id: p_maria
+  - type: audio_stream_on
+    participant_id: p_maria
+    data:
+      {
+        text: "Hi, thanks for making time today. Let's dive right in - can you tell me about a recent frontend project you led?",
+      }
+  - type: transcript_segment
+    participant_id: p_maria
+    data:
+      {
+        text: "Hi, thanks for making time today. Let's dive right in - can you tell me about a recent frontend project you led?",
+      }
+  - type: speaking_end
+    participant_id: p_maria
+
+  - type: speaking_start
+    participant_id: p_david
+  - type: audio_stream_on
+    participant_id: p_david
+    data:
+      {
+        text: "Sure. I recently rebuilt our checkout flow in React, cutting page load time by about forty percent using code splitting and lazy loading.",
+      }
+  - type: transcript_segment
+    participant_id: p_david
+    data:
+      {
+        text: "Sure. I recently rebuilt our checkout flow in React, cutting page load time by about forty percent using code splitting and lazy loading.",
+      }
+  - type: speaking_end
+    participant_id: p_david
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_maria
+  - type: audio_stream_on
+    participant_id: p_maria
+    data:
+      {
+        text: "Nice. Could you share your screen and sketch out how you'd approach state management for that kind of app?",
+      }
+  - type: transcript_segment
+    participant_id: p_maria
+    data:
+      {
+        text: "Nice. Could you share your screen and sketch out how you'd approach state management for that kind of app?",
+      }
+  - type: speaking_end
+    participant_id: p_maria
+
+  - type: screenshare_start
+    participant_id: p_david
+    data: { path: "media/candidate_webcam.png" }
+
+  - type: speaking_start
+    participant_id: p_david
+  - type: audio_stream_on
+    participant_id: p_david
+    data:
+      {
+        text: "I'd reach for a lightweight store like Zustand, keep server state in a query cache, and avoid prop drilling with context only where it's cheap.",
+      }
+  - type: transcript_segment
+    participant_id: p_david
+    data:
+      {
+        text: "I'd reach for a lightweight store like Zustand, keep server state in a query cache, and avoid prop drilling with context only where it's cheap.",
+      }
+  - type: speaking_end
+    participant_id: p_david
+
+  - type: screenshare_end
+    participant_id: p_david
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_maria
+  - type: audio_stream_on
+    participant_id: p_maria
+    data:
+      {
+        text: "That's great, thanks. I think we've covered everything I needed for this round.",
+      }
+  - type: transcript_segment
+    participant_id: p_maria
+    data:
+      {
+        text: "That's great, thanks. I think we've covered everything I needed for this round.",
+      }
+  - type: speaking_end
+    participant_id: p_maria
+
+  - type: webcam_off
+    participant_id: p_david
+  - type: webcam_off
+    participant_id: p_maria
+
+  - type: participant_leave
+    participant_id: p_david
+  - type: participant_leave
+    participant_id: p_maria
+
+evaluation:
+  ground_truth_participant_id: p_david
+  difficulty: 4
+  challenging_points:
+    - "context.candidate_name ('Priya Sharma') matches no participant at all, in any field, at any point in the timeline - there is no name-based signal to recover, correct or otherwise"
+    - "Only two participants are on the call, so a naive 'exclude interviewer_names, whoever's left is the candidate' rule would happen to work here by process of elimination - but only because there are exactly two people. A robust system shouldn't rely on that coincidence"
+    - "p_david's real display name ('David Kim') looks like a completely ordinary, plausible human name, giving false confidence that it must therefore be correct - it is coincidentally correct as 'the candidate' but not because it matches context.candidate_name, which a naive system might not distinguish"
+  expected_evidence:
+    primary:
+      - "p_david answers every substantive question Maria asks and never asks an interview-style question back"
+      - "p_david shares his screen exactly when asked to walk through a technical approach"
+    secondary:
+      - "p_maria drives the conversation structure (greeting, follow-up prompts, wrap-up) consistent with an interviewer role"
+    misleading:
+      - "context.candidate_name 'Priya Sharma' never appears anywhere in the session - a system searching for a string match will find nothing and may default to low confidence or the wrong heuristic entirely"
+      - "context.calendar_invite.title also references 'Priya Sharma', reinforcing the wrong name rather than correcting it"

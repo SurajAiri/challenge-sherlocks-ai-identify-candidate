@@ -1,0 +1,159 @@
+metadata:
+  name: "No calendar invite, no schedule, no interviewer list"
+  slug: "missing_metadata"
+  description: >
+    Only the two mandatory context fields (candidate_name,
+    candidate_email) are present - calendar_invite,
+    interview_schedule, and interviewer_names are all omitted
+    entirely, simulating an incompletely-configured scheduling
+    integration. There is no interviewer_names list to exclude
+    against, so identification has to lean entirely on behavior
+    (who's asking vs. answering questions) plus the one name signal
+    that does exist. The system should degrade gracefully - lower
+    confidence than a fully-specified scenario, but not a failure -
+    rather than silently assuming missing fields as empty-but-still-
+    authoritative.
+
+controls:
+  speed_multiplier: 20.0
+  generate_audio: true
+
+context:
+  candidate_name: "Liam Torres"
+  candidate_email: "liam.torres@example.com"
+
+participants:
+  p_dana:
+    display_name: "Dana Whitfield"
+    role_hint: interviewer
+  p_liam:
+    display_name: "Liam T"
+    role_hint: candidate
+
+timeline:
+  - type: participant_join
+    participant_id: p_dana
+    data: { display_name: "Dana Whitfield" }
+  - type: participant_join
+    participant_id: p_liam
+    data: { display_name: "Liam T" }
+
+  - type: webcam_on
+    participant_id: p_dana
+    data: { path: "media/interviewer_webcam.png" }
+  - type: webcam_on
+    participant_id: p_liam
+    data: { path: "media/candidate_webcam.png" }
+
+  - type: silence
+    data: { duration: 2 }
+
+  - type: speaking_start
+    participant_id: p_dana
+  - type: audio_stream_on
+    participant_id: p_dana
+    data:
+      {
+        text: "Hi, thanks for hopping on. I don't think I have your full background in front of me, so let's start from scratch - what have you been working on recently?",
+      }
+  - type: transcript_segment
+    participant_id: p_dana
+    data:
+      {
+        text: "Hi, thanks for hopping on. I don't think I have your full background in front of me, so let's start from scratch - what have you been working on recently?",
+      }
+  - type: speaking_end
+    participant_id: p_dana
+
+  - type: speaking_start
+    participant_id: p_liam
+  - type: audio_stream_on
+    participant_id: p_liam
+    data:
+      {
+        text: "Sure, I'm Liam. I've been working mostly on mobile infrastructure, CI pipelines and release tooling for a fintech app.",
+      }
+  - type: transcript_segment
+    participant_id: p_liam
+    data:
+      {
+        text: "Sure, I'm Liam. I've been working mostly on mobile infrastructure, CI pipelines and release tooling for a fintech app.",
+      }
+  - type: speaking_end
+    participant_id: p_liam
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_dana
+  - type: audio_stream_on
+    participant_id: p_dana
+    data:
+      {
+        text: "Nice. Tell me about a time a release went wrong and how you handled it.",
+      }
+  - type: transcript_segment
+    participant_id: p_dana
+    data:
+      {
+        text: "Nice. Tell me about a time a release went wrong and how you handled it.",
+      }
+  - type: speaking_end
+    participant_id: p_dana
+
+  - type: speaking_start
+    participant_id: p_liam
+  - type: audio_stream_on
+    participant_id: p_liam
+    data:
+      {
+        text: "We shipped a build with a broken feature flag once. I rolled it back within ten minutes and added a staged rollout gate afterward.",
+      }
+  - type: transcript_segment
+    participant_id: p_liam
+    data:
+      {
+        text: "We shipped a build with a broken feature flag once. I rolled it back within ten minutes and added a staged rollout gate afterward.",
+      }
+  - type: speaking_end
+    participant_id: p_liam
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_dana
+  - type: audio_stream_on
+    participant_id: p_dana
+    data: { text: "Good to know. That's everything on my end, thanks Liam." }
+  - type: transcript_segment
+    participant_id: p_dana
+    data: { text: "Good to know. That's everything on my end, thanks Liam." }
+  - type: speaking_end
+    participant_id: p_dana
+
+  - type: webcam_off
+    participant_id: p_liam
+  - type: webcam_off
+    participant_id: p_dana
+
+  - type: participant_leave
+    participant_id: p_liam
+  - type: participant_leave
+    participant_id: p_dana
+
+evaluation:
+  ground_truth_participant_id: p_liam
+  difficulty: 3
+  challenging_points:
+    - "context.interviewer_names, context.calendar_invite, and context.interview_schedule are all absent, so any logic branch that assumes at least one of them exists (e.g. 'exclude everyone in interviewer_names') has nothing to work with and must fall back cleanly rather than erroring or defaulting to overconfidence"
+    - "The candidate's display name ('Liam T') is a partial, truncated match against context.candidate_name ('Liam Torres') - close enough to be suggestive, not close enough to be a confident exact match, testing fuzzy name-matching calibration specifically in the absence of any corroborating scheduling metadata"
+  expected_evidence:
+    primary:
+      - "p_liam answers every substantive question and never asks one himself, while p_dana does the reverse"
+    secondary:
+      - "p_liam's display name 'Liam T' partially matches context.candidate_name 'Liam Torres' (first name and initial) - suggestive but not a full string match"
+      - "p_liam verbally self-identifies as 'Liam' in the transcript, reinforcing the partial name match"
+    misleading:
+      - "With no interview_schedule, there is no scheduled start time to corroborate join timing against - a system that leans on 'joined at the scheduled time' as a signal has nothing to check it against here"

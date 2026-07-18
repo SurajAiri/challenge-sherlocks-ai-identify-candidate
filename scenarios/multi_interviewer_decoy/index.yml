@@ -1,0 +1,211 @@
+metadata:
+  name: "Two interviewers, one briefly shares a screen too"
+  slug: "multi_interviewer_decoy"
+  description: >
+    Two interviewers are present and both are listed in
+    context.interviewer_names, so a system that simply "excludes
+    everyone in interviewer_names" has enough information to narrow
+    things down on names alone here. The twist is a decoy for anyone
+    using screenshare as a hard candidate signal: one interviewer
+    briefly shares her screen to show a job-description slide before
+    handing off to the actual coding round, so "who shared their
+    screen" alone is not sufficient - it has to be combined with
+    *when* and *what kind* of sharing happened, plus who is answering
+    versus asking questions.
+
+controls:
+  speed_multiplier: 20.0
+  generate_audio: true
+
+context:
+  candidate_name: "Noah Patel"
+  candidate_email: "noah.patel@example.com"
+  interviewer_names: ["Grace Kim", "Tom Alvarez"]
+  calendar_invite:
+    organizer: "Grace Kim"
+    title: "Platform Engineer Interview - Noah Patel"
+  interview_schedule:
+    start: "2026-07-15T09:30:00"
+    duration_minutes: 45
+
+participants:
+  p_grace:
+    display_name: "Grace Kim"
+    role_hint: interviewer
+  p_tom:
+    display_name: "Tom Alvarez"
+    role_hint: interviewer
+  p_noah:
+    display_name: "Noah Patel"
+    role_hint: candidate
+
+timeline:
+  - type: participant_join
+    participant_id: p_grace
+    data: { display_name: "Grace Kim" }
+  - type: participant_join
+    participant_id: p_tom
+    data: { display_name: "Tom Alvarez" }
+  - type: participant_join
+    participant_id: p_noah
+    data: { display_name: "Noah Patel" }
+
+  - type: webcam_on
+    participant_id: p_grace
+    data: { path: "media/interviewer_webcam.png" }
+  - type: webcam_on
+    participant_id: p_noah
+    data: { path: "media/candidate_webcam.png" }
+
+  - type: silence
+    data: { duration: 2 }
+
+  - type: speaking_start
+    participant_id: p_grace
+  - type: audio_stream_on
+    participant_id: p_grace
+    data:
+      {
+        text: "Hi Noah, welcome. Before we start, let me quickly share my screen and walk through the role.",
+      }
+  - type: transcript_segment
+    participant_id: p_grace
+    data:
+      {
+        text: "Hi Noah, welcome. Before we start, let me quickly share my screen and walk through the role.",
+      }
+  - type: speaking_end
+    participant_id: p_grace
+
+  - type: screenshare_start
+    participant_id: p_grace
+    data: { path: "media/interviewer_webcam.png" }
+
+  - type: speaking_start
+    participant_id: p_grace
+  - type: audio_stream_on
+    participant_id: p_grace
+    data:
+      {
+        text: "This role sits on the platform team, mostly Kubernetes and internal tooling. Any questions before we jump into the technical round?",
+      }
+  - type: transcript_segment
+    participant_id: p_grace
+    data:
+      {
+        text: "This role sits on the platform team, mostly Kubernetes and internal tooling. Any questions before we jump into the technical round?",
+      }
+  - type: speaking_end
+    participant_id: p_grace
+
+  - type: screenshare_end
+    participant_id: p_grace
+
+  - type: speaking_start
+    participant_id: p_noah
+  - type: audio_stream_on
+    participant_id: p_noah
+    data: { text: "Nope, sounds great, let's get started." }
+  - type: transcript_segment
+    participant_id: p_noah
+    data: { text: "Nope, sounds great, let's get started." }
+  - type: speaking_end
+    participant_id: p_noah
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_tom
+  - type: audio_stream_on
+    participant_id: p_tom
+    data:
+      {
+        text: "I'll take this one. Noah, can you share your screen and walk me through how you'd debug a pod that keeps getting OOM killed?",
+      }
+  - type: transcript_segment
+    participant_id: p_tom
+    data:
+      {
+        text: "I'll take this one. Noah, can you share your screen and walk me through how you'd debug a pod that keeps getting OOM killed?",
+      }
+  - type: speaking_end
+    participant_id: p_tom
+
+  - type: screenshare_start
+    participant_id: p_noah
+    data: { path: "media/candidate_webcam.png" }
+
+  - type: speaking_start
+    participant_id: p_noah
+  - type: audio_stream_on
+    participant_id: p_noah
+    data:
+      {
+        text: "First I'd check the pod's resource limits against actual usage, then look at kubectl describe for the OOMKilled event and container memory metrics over time.",
+      }
+  - type: transcript_segment
+    participant_id: p_noah
+    data:
+      {
+        text: "First I'd check the pod's resource limits against actual usage, then look at kubectl describe for the OOMKilled event and container memory metrics over time.",
+      }
+  - type: speaking_end
+    participant_id: p_noah
+
+  - type: screenshare_end
+    participant_id: p_noah
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_tom
+  - type: audio_stream_on
+    participant_id: p_tom
+    data: { text: "Solid answer. That's all I had, back to you Grace." }
+  - type: transcript_segment
+    participant_id: p_tom
+    data: { text: "Solid answer. That's all I had, back to you Grace." }
+  - type: speaking_end
+    participant_id: p_tom
+
+  - type: speaking_start
+    participant_id: p_grace
+  - type: audio_stream_on
+    participant_id: p_grace
+    data: { text: "Great, thanks Noah, that wraps up our time today." }
+  - type: transcript_segment
+    participant_id: p_grace
+    data: { text: "Great, thanks Noah, that wraps up our time today." }
+  - type: speaking_end
+    participant_id: p_grace
+
+  - type: webcam_off
+    participant_id: p_noah
+  - type: webcam_off
+    participant_id: p_grace
+
+  - type: participant_leave
+    participant_id: p_noah
+  - type: participant_leave
+    participant_id: p_tom
+  - type: participant_leave
+    participant_id: p_grace
+
+evaluation:
+  ground_truth_participant_id: p_noah
+  difficulty: 3
+  challenging_points:
+    - "Two interviewers both drive conversation and both are listed in context.interviewer_names, giving a naive exclusion rule enough to work here - but the scenario still stresses whether the system correctly attributes turn-taking across three active speakers instead of just two"
+    - "One interviewer (p_grace) shares her screen before the candidate does, so a system treating 'first person to screenshare' or 'anyone who screenshares' as a strong candidate signal will misfire unless it also weighs *what* was shared (a role overview slide vs. a live technical walkthrough) and *who asked whom* to share"
+    - "A second interviewer (p_tom) barely speaks compared to p_grace, testing whether low speaking-time alone gets misread as 'less like an interviewer, more like a candidate'"
+  expected_evidence:
+    primary:
+      - "p_noah is the only participant who answers technical questions rather than asking them"
+      - "p_noah's display_name matches context.candidate_name exactly from the moment he joins"
+    secondary:
+      - "p_noah shares his screen specifically in response to a direct request to walk through a technical debugging approach, distinct in framing from p_grace's earlier overview share"
+    misleading:
+      - "p_grace also uses screenshare, early in the call, which could be mistaken for candidate-like behavior if screenshare alone is treated as a strong signal"
+      - "p_tom speaks far less than p_grace or p_noah, which could be misread as low engagement inconsistent with an interviewer role"

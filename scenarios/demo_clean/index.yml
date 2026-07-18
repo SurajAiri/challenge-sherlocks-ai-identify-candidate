@@ -1,0 +1,218 @@
+metadata:
+  name: "Nickname mismatch, multi-interviewer, silent observer"
+  slug: "demo_clean"
+  description: >
+    A candidate joins under their laptop's device name ("MacBook Pro"),
+    only revealing their real name via a mid-call participant_update near
+    the end. Two interviewers are present and drive most of the early
+    conversation. A silent observer joins under an equally device-like
+    name ("iPhone") and never speaks - a decoy for anything that tries to
+    use "device-name-looking display name" as a shortcut signal. Baseline
+    happy-path scenario: no synthesized media beyond static webcam images,
+    no cross-talk, single speaker at a time.
+
+controls:
+  speed_multiplier: 20.0
+  generate_audio: true
+
+context:
+  candidate_name: "Suraj Thapa"
+  candidate_email: "suraj.thapa@example.com"
+  interviewer_names: ["Alex Rivera", "Jordan Lee"]
+  calendar_invite:
+    organizer: "Alex Rivera"
+    title: "Backend Engineer Interview - Suraj Thapa"
+  interview_schedule:
+    start: "2026-07-12T10:00:00"
+    duration_minutes: 30
+
+participants:
+  p_alex:
+    display_name: "Alex Rivera"
+    role_hint: interviewer
+  p_jordan:
+    display_name: "Jordan Lee"
+    role_hint: interviewer
+  p_mbp:
+    display_name: "MacBook Pro"
+    role_hint: candidate
+  p_obs:
+    display_name: "iPhone"
+    role_hint: observer
+
+timeline:
+  - type: participant_join
+    participant_id: p_alex
+    data: { display_name: "Alex Rivera" }
+  - type: participant_join
+    participant_id: p_jordan
+    data: { display_name: "Jordan Lee" }
+  - type: participant_join
+    participant_id: p_mbp
+    data: { display_name: "MacBook Pro" }
+  - type: participant_join
+    participant_id: p_obs
+    data: { display_name: "iPhone" }
+
+  - type: webcam_on
+    participant_id: p_alex
+    data: { path: "media/interviewer_webcam.png" }
+  - type: webcam_on
+    participant_id: p_mbp
+    data: { path: "media/candidate_webcam.png" }
+
+  - type: silence
+    data: { duration: 2 }
+
+  - type: speaking_start
+    participant_id: p_alex
+  - type: audio_stream_on
+    participant_id: p_alex
+    data:
+      {
+        text: "Hi, thanks for joining. Can you start by walking us through your background?",
+      }
+  - type: transcript_segment
+    participant_id: p_alex
+    data:
+      {
+        text: "Hi, thanks for joining. Can you start by walking us through your background?",
+      }
+  - type: speaking_end
+    participant_id: p_alex
+
+  - type: speaking_start
+    participant_id: p_mbp
+  - type: audio_stream_on
+    participant_id: p_mbp
+    data:
+      {
+        text: "Sure. I've spent the last four years building backend systems, mostly in Python and Go, with a focus on distributed systems and reliability work.",
+      }
+  - type: transcript_segment
+    participant_id: p_mbp
+    data:
+      {
+        text: "Sure. I've spent the last four years building backend systems, mostly in Python and Go, with a focus on distributed systems and reliability work.",
+      }
+  - type: speaking_end
+    participant_id: p_mbp
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_jordan
+  - type: audio_stream_on
+    participant_id: p_jordan
+    data:
+      {
+        text: "Great. Let's move into a coding problem. Can you share your screen and walk us through your approach?",
+      }
+  - type: transcript_segment
+    participant_id: p_jordan
+    data:
+      {
+        text: "Great. Let's move into a coding problem. Can you share your screen and walk us through your approach?",
+      }
+  - type: speaking_end
+    participant_id: p_jordan
+
+  - type: screenshare_start
+    participant_id: p_mbp
+    data: { path: "media/candidate_webcam.png" }
+
+  - type: speaking_start
+    participant_id: p_mbp
+  - type: audio_stream_on
+    participant_id: p_mbp
+    data:
+      {
+        text: "I'll start with a brute force approach, then optimize. First, let's define the problem constraints.",
+      }
+  - type: transcript_segment
+    participant_id: p_mbp
+    data:
+      {
+        text: "I'll start with a brute force approach, then optimize. First, let's define the problem constraints.",
+      }
+  - type: speaking_end
+    participant_id: p_mbp
+
+  - type: screenshare_end
+    participant_id: p_mbp
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_alex
+  - type: audio_stream_on
+    participant_id: p_alex
+    data:
+      {
+        text: "That's solid. One last question - do you have anything you'd like to ask us before we wrap up?",
+      }
+  - type: transcript_segment
+    participant_id: p_alex
+    data:
+      {
+        text: "That's solid. One last question - do you have anything you'd like to ask us before we wrap up?",
+      }
+  - type: speaking_end
+    participant_id: p_alex
+
+  - type: speaking_start
+    participant_id: p_mbp
+  - type: audio_stream_on
+    participant_id: p_mbp
+    data:
+      {
+        text: "Not right now, thank you. Oh, and sorry, I'm Suraj by the way, I don't think I properly introduced myself. I'll send my portfolio over after this.",
+      }
+  - type: transcript_segment
+    participant_id: p_mbp
+    data:
+      {
+        text: "Not right now, thank you. Oh, and sorry, I'm Suraj by the way, I don't think I properly introduced myself. I'll send my portfolio over after this.",
+      }
+  - type: speaking_end
+    participant_id: p_mbp
+
+  - type: participant_update
+    participant_id: p_mbp
+    data: { display_name: "Suraj Thapa" }
+
+  - type: webcam_off
+    participant_id: p_mbp
+  - type: webcam_off
+    participant_id: p_alex
+
+  - type: participant_leave
+    participant_id: p_obs
+  - type: participant_leave
+    participant_id: p_mbp
+  - type: participant_leave
+    participant_id: p_jordan
+  - type: participant_leave
+    participant_id: p_alex
+
+evaluation:
+  ground_truth_participant_id: p_mbp
+  difficulty: 3
+  challenging_points:
+    - "Candidate's display name ('MacBook Pro') never string-matches context.candidate_name ('Suraj Thapa') until a participant_update very near the end of the call"
+    - "Two interviewers are present and jointly drive most of the early conversation - both must be excluded despite talking often"
+    - "A silent observer joins under an equally device-like display name ('iPhone'), the same superficial pattern as the candidate - a system that flags 'device-like name' as candidate-ish will get confused between the two"
+    - "For most of the call, correct identification has to come from behavioral signal (who is answering interview questions, who shares their screen when asked to) rather than any name match"
+  expected_evidence:
+    primary:
+      - "p_mbp has by far the largest share of speaking time and transcript volume, and it is all in the form of answers to questions"
+      - "p_mbp is the participant being asked questions by both interviewers; p_mbp never asks an interview-style question of anyone else"
+    secondary:
+      - "p_mbp shares their screen exactly when asked to walk through a coding solution - consistent with being the person being evaluated, not an evaluator"
+      - "p_mbp's participant_update reveals display_name 'Suraj Thapa', matching context.candidate_name exactly - but only near the very end"
+    misleading:
+      - "p_mbp's initial display_name 'MacBook Pro' has zero string overlap with context.candidate_name"
+      - "p_obs's display_name 'iPhone' is also a bare device name, superficially identical in pattern to the candidate's, despite p_obs never speaking, never sharing video content, and never being addressed by anyone"
+      - "context.interviewer_names lists exactly two people, but naive 'exclude everyone in this list' logic still leaves both p_mbp and p_obs as candidates - it doesn't disambiguate between them"

@@ -1,0 +1,200 @@
+metadata:
+  name: "Extended live-coding round with recorded screenshare content"
+  slug: "screenshare_coding_round"
+  description: >
+    Candidate's name matches cleanly and there's no identity trickery
+    here - instead this scenario stresses the media-handling path
+    itself. The candidate has an extended screenshare window with an
+    actual recorded (loop-fit) image behind it rather than a bare
+    marker, running concurrently with a long back-and-forth of
+    transcript segments, so there's sustained overlapping webcam +
+    screenshare + audio + transcript activity to exercise track_id
+    correlation and multi-modality stream handling under realistic
+    concurrent load, not just single-modality toy cases.
+
+controls:
+  speed_multiplier: 20.0
+  generate_audio: true
+  video_fps: 5.0
+  audio_chunk_ms: 200
+
+context:
+  candidate_name: "Yuki Tanaka"
+  candidate_email: "yuki.tanaka@example.com"
+  interviewer_names: ["Sam Reyes"]
+  calendar_invite:
+    organizer: "Sam Reyes"
+    title: "Software Engineer Interview - Yuki Tanaka"
+  interview_schedule:
+    start: "2026-07-18T16:00:00"
+    duration_minutes: 60
+
+participants:
+  p_sam:
+    display_name: "Sam Reyes"
+    role_hint: interviewer
+  p_yuki:
+    display_name: "Yuki Tanaka"
+    role_hint: candidate
+
+timeline:
+  - type: participant_join
+    participant_id: p_sam
+    data: { display_name: "Sam Reyes" }
+  - type: participant_join
+    participant_id: p_yuki
+    data: { display_name: "Yuki Tanaka" }
+
+  - type: webcam_on
+    participant_id: p_sam
+    data: { path: "media/interviewer_webcam.png" }
+  - type: webcam_on
+    participant_id: p_yuki
+    data: { path: "media/candidate_webcam.png" }
+
+  - type: silence
+    data: { duration: 2 }
+
+  - type: speaking_start
+    participant_id: p_sam
+  - type: audio_stream_on
+    participant_id: p_sam
+    data:
+      {
+        text: "Let's move straight into the coding round. Go ahead and share your screen whenever you're ready.",
+      }
+  - type: transcript_segment
+    participant_id: p_sam
+    data:
+      {
+        text: "Let's move straight into the coding round. Go ahead and share your screen whenever you're ready.",
+      }
+  - type: speaking_end
+    participant_id: p_sam
+
+  - type: screenshare_start
+    participant_id: p_yuki
+    data: { path: "media/candidate_webcam.png" }
+
+  - type: speaking_start
+    participant_id: p_yuki
+  - type: audio_stream_on
+    participant_id: p_yuki
+    data:
+      {
+        text: "Sounds good. I'll start by writing out a brute force solution, then talk through how to optimize it.",
+      }
+  - type: transcript_segment
+    participant_id: p_yuki
+    data:
+      {
+        text: "Sounds good. I'll start by writing out a brute force solution, then talk through how to optimize it.",
+      }
+  - type: speaking_end
+    participant_id: p_yuki
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_sam
+  - type: audio_stream_on
+    participant_id: p_sam
+    data: { text: "Go ahead, and think out loud as you go." }
+  - type: transcript_segment
+    participant_id: p_sam
+    data: { text: "Go ahead, and think out loud as you go." }
+  - type: speaking_end
+    participant_id: p_sam
+
+  - type: speaking_start
+    participant_id: p_yuki
+  - type: audio_stream_on
+    participant_id: p_yuki
+    data:
+      {
+        text: "This looks like a two-pointer problem. I'll sort the array first, then walk pointers in from both ends checking the sum against the target.",
+      }
+  - type: transcript_segment
+    participant_id: p_yuki
+    data:
+      {
+        text: "This looks like a two-pointer problem. I'll sort the array first, then walk pointers in from both ends checking the sum against the target.",
+      }
+  - type: speaking_end
+    participant_id: p_yuki
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_yuki
+  - type: audio_stream_on
+    participant_id: p_yuki
+    data:
+      {
+        text: "That gets us to O of n log n for the sort and O of n for the scan, so O of n log n overall, and constant extra space.",
+      }
+  - type: transcript_segment
+    participant_id: p_yuki
+    data:
+      {
+        text: "That gets us to O of n log n for the sort and O of n for the scan, so O of n log n overall, and constant extra space.",
+      }
+  - type: speaking_end
+    participant_id: p_yuki
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_sam
+  - type: audio_stream_on
+    participant_id: p_sam
+    data: { text: "Nice, that's a clean solution. You can stop sharing." }
+  - type: transcript_segment
+    participant_id: p_sam
+    data: { text: "Nice, that's a clean solution. You can stop sharing." }
+  - type: speaking_end
+    participant_id: p_sam
+
+  - type: screenshare_end
+    participant_id: p_yuki
+
+  - type: silence
+    data: { duration: 1 }
+
+  - type: speaking_start
+    participant_id: p_sam
+  - type: audio_stream_on
+    participant_id: p_sam
+    data: { text: "That's everything I had, thanks Yuki." }
+  - type: transcript_segment
+    participant_id: p_sam
+    data: { text: "That's everything I had, thanks Yuki." }
+  - type: speaking_end
+    participant_id: p_sam
+
+  - type: webcam_off
+    participant_id: p_yuki
+  - type: webcam_off
+    participant_id: p_sam
+
+  - type: participant_leave
+    participant_id: p_yuki
+  - type: participant_leave
+    participant_id: p_sam
+
+evaluation:
+  ground_truth_participant_id: p_yuki
+  difficulty: 1
+  challenging_points:
+    - "Long screenshare window (data.path given, so real loop-fit stream chunks) overlaps with several webcam-on windows and multiple audio_stream_on/transcript_segment pairs in sequence - exercises sustained concurrent multi-modality stream handling and track_id correlation across audio, video, and screenshare simultaneously, not just isolated single-modality events"
+    - "Straightforward name match and single interviewer - this scenario is intentionally 'easy' on the identity-reasoning axis so any noise in the result can be attributed to stream/media handling rather than identification logic"
+  expected_evidence:
+    primary:
+      - "p_yuki's display_name matches context.candidate_name exactly from join"
+      - "p_yuki is the only participant who screenshares, and does so specifically during a live-coding walkthrough at the interviewer's request"
+    secondary:
+      - "p_yuki answers every question and drives the technical explanation unprompted once started"
+    misleading: []
