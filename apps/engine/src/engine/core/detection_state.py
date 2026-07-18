@@ -12,14 +12,28 @@ tell the client" can never silently disagree.
 States:
 
   EXPLORING          - mandatory warmup: the session hasn't yet
-                        accumulated enough evidence for any prediction
-                        to be meaningful. Both MIN_ELAPSED_SECONDS and
-                        MIN_EVIDENCE_PIECES must be satisfied before
-                        the machine is allowed to advance. The engine
-                        reports possible_candidate_ids=[] during this
-                        phase - not because it doesn't know, but
-                        because it explicitly refuses to rush a guess
-                        on thin data.
+                        accumulated enough *and enough kinds of*
+                        evidence for any prediction to be meaningful.
+                        Three independent gates - elapsed time,
+                        evidence volume, and evidence diversity - all
+                        adaptive to how many participants are in the
+                        call, must be satisfied before the machine is
+                        allowed to advance. The engine reports
+                        possible_candidate_ids=[] during this phase -
+                        not because it doesn't know, but because it
+                        explicitly refuses to rush a guess on thin
+                        data.
+
+                        Deliberately NOT gated on probability_candidate
+                        itself (see BeliefEngine's
+                        NO_EVIDENCE_BASELINE_LOGIT docstring) - a
+                        confidence-based exit would let one lucky early
+                        signal spike a softmax over a small pool and
+                        skip warmup entirely, which is precisely the
+                        failure mode this gate exists to prevent. The
+                        gate only ever asks "have we sampled enough,
+                        and from enough independent sources" - never
+                        "does the current leader look confident."
   SEARCHING          - warmup cleared, but no participant clears
                         INSUFFICIENT_EVIDENCE_THRESHOLD yet.
   LIKELY_CANDIDATE   - someone clears the insufficient-evidence floor
@@ -71,28 +85,68 @@ assert STABLE_EXIT_THRESHOLD < CONFIDENT_THRESHOLD, "hysteresis band must be non
 # ---------------------------------------------------------------------------
 # EXPLORING warmup gate
 # ---------------------------------------------------------------------------
-# Both conditions must be true before the state machine is allowed to
-# advance past EXPLORING. They are intentionally independent so either
-# one can act as a floor on its own:
+# THREE conditions must all be true before the state machine is allowed
+# to advance past EXPLORING. They are intentionally independent so any
+# one of them can act as a floor on its own - each catches a failure
+# mode the other two don't:
 #
-#   MIN_ELAPSED_SECONDS   - raw session time (simulation clock, not wall
+#   elapsed time      - raw session time (simulation clock, not wall
 #     clock). Even if identifiers fire very fast on the first events,
 #     we don't name anyone until at least this many seconds of session
-#     content have been observed. Tune this to the shortest credible
-#     window of signal your slowest-firing identifier needs.
+#     content have been observed.
 #
-#   MIN_EVIDENCE_PIECES   - total evidence log entries summed across ALL
-#     participants. Each identifier that fires for any participant
-#     contributes one entry. This measures "have enough independent
-#     observations landed?" regardless of elapsed time - a slow session
-#     with sparse events would otherwise clear the time gate while still
-#     sitting on near-zero evidence.
+#   evidence volume    - total evidence log entries summed across ALL
+#     participants. Measures "have enough independent observations
+#     landed?" regardless of elapsed time - a slow session with sparse
+#     events would otherwise clear the time gate while still sitting on
+#     near-zero evidence.
 #
-# Both gates together say: "we've seen enough *time* and enough
-# *independent signal* to trust that the softmax order reflects reality
-# rather than who happened to join first or speak first."
-MIN_ELAPSED_SECONDS: float = 20.0
-MIN_EVIDENCE_PIECES: int = 3
+#   evidence diversity - evidence volume alone is gameable: the same
+#     cheap, noisy identifier firing 3x on one participant clears the
+#     old flat MIN_EVIDENCE_PIECES=3 floor without a single independent
+#     source agreeing. This requires evidence to have arrived from at
+#     least MIN_DISTINCT_IDENTIFIERS different identifiers (summed
+#     across participants) before the volume count is trusted.
+#
+# All three are ADAPTIVE to how many participants are on the call, via
+# `_participant_scaled_floor` below. Rationale: the softmax the belief
+# engine runs is a competition across every current participant - more
+# candidates in the pool means more ways for early evidence to be
+# ambiguous or misleading, so a 2-person call and an 8-person "silent
+# observers" call should not be held to the same fixed bar. Both the
+# per-participant scaling factor and the caps are deliberately modest:
+# this is still a hard, cheap, pre-belief gate, not a second scoring
+# system - see module docstring.
+MIN_ELAPSED_SECONDS_BASE: float = 20.0
+SECONDS_PER_EXTRA_PARTICIPANT: float = 5.0
+MAX_MIN_ELAPSED_SECONDS: float = 45.0
+
+MIN_EVIDENCE_PIECES_BASE: int = 3
+EVIDENCE_PIECES_PER_EXTRA_PARTICIPANT: int = 1
+MAX_MIN_EVIDENCE_PIECES: int = 10
+
+# Participant count at/below which no scaling is applied - a normal
+# 1:1 or 1-candidate-2-interviewers call gets exactly the old fixed
+# floor; scaling only kicks in for larger rooms.
+BASELINE_PARTICIPANTS_FOR_SCALING: int = 2
+
+# Independent identifiers (not repeat firings of the same one) that
+# must have contributed evidence, summed across all participants,
+# before EXPLORING can clear. Not scaled by participant count - this
+# is a floor on *kinds* of signal, which a bigger room doesn't inherently
+# increase.
+MIN_DISTINCT_IDENTIFIERS: int = 2
+
+
+def _participant_scaled_floor(
+    participant_count: int, base: float, per_extra: float, cap: float
+) -> float:
+    """`base` for BASELINE_PARTICIPANTS_FOR_SCALING or fewer people on
+    the call; +`per_extra` for every participant beyond that, capped at
+    `cap` so a very large room (e.g. a farm of silent observers) can't
+    push the warmup floor out indefinitely."""
+    extra = max(0, participant_count - BASELINE_PARTICIPANTS_FOR_SCALING)
+    return min(cap, base + extra * per_extra)
 
 
 class DetectionState(str, Enum):
@@ -122,25 +176,48 @@ class DetectionStateTracker:
         one place that already has the full, freshly-normalized pool.
 
         `elapsed_t` is the simulation clock's current_t (seconds of
-        session content seen so far). It's checked against
-        MIN_ELAPSED_SECONDS as part of the EXPLORING gate. Callers
-        that don't have it available can omit it; the time gate will
-        simply never clear until they pass a non-zero value.
+        session content seen so far). It's checked against the
+        (participant-count-scaled) elapsed-time floor as part of the
+        EXPLORING gate. Callers that don't have it available can omit
+        it; the time gate will simply never clear until they pass a
+        non-zero value.
         """
         previous = self.state
 
         # ---- EXPLORING gate ------------------------------------------
-        # Stay in EXPLORING until both heuristic floors are cleared.
-        # Once we leave EXPLORING we never re-enter it (even if evidence
-        # later evaporates through decay - that's what LOST_CANDIDATE is
+        # Stay in EXPLORING until all three adaptive floors (time,
+        # evidence volume, evidence diversity) are cleared. Once we
+        # leave EXPLORING we never re-enter it (even if evidence later
+        # evaporates through decay - that's what LOST_CANDIDATE is
         # for). The gate is one-way by design.
         if previous == DetectionState.EXPLORING:
-            total_evidence = sum(
-                len(p.evidence_log) for p in participants
+            participant_count = len(participants)
+            total_evidence = sum(len(p.evidence_log) for p in participants)
+            # Distinct identifiers that have ever contributed to ANY
+            # participant, not evidence_log entries - a participant can
+            # have several evidence_log rows from the same identifier
+            # re-firing, which should not count as diverse signal.
+            distinct_identifiers: set[str] = set()
+            for p in participants:
+                distinct_identifiers.update(p.identifier_contributions.keys())
+
+            min_elapsed = _participant_scaled_floor(
+                participant_count,
+                MIN_ELAPSED_SECONDS_BASE,
+                SECONDS_PER_EXTRA_PARTICIPANT,
+                MAX_MIN_ELAPSED_SECONDS,
             )
-            time_ok = elapsed_t >= MIN_ELAPSED_SECONDS
-            evidence_ok = total_evidence >= MIN_EVIDENCE_PIECES
-            if not (time_ok and evidence_ok):
+            min_evidence = _participant_scaled_floor(
+                participant_count,
+                MIN_EVIDENCE_PIECES_BASE,
+                EVIDENCE_PIECES_PER_EXTRA_PARTICIPANT,
+                MAX_MIN_EVIDENCE_PIECES,
+            )
+
+            time_ok = elapsed_t >= min_elapsed
+            evidence_ok = total_evidence >= min_evidence
+            diversity_ok = len(distinct_identifiers) >= MIN_DISTINCT_IDENTIFIERS
+            if not (time_ok and evidence_ok and diversity_ok):
                 # Still warming up - remain in EXPLORING, reset streak
                 # so the first real snapshot after we emerge doesn't
                 # inherit a stale streak count.

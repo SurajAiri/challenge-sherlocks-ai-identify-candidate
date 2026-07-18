@@ -13,9 +13,9 @@ a single guess whenever evidence is thin, four states are possible:
 
   - []   (EXPLORING)      - the warmup gate hasn't cleared yet; the
                             engine explicitly refuses to name anyone
-                            before MIN_ELAPSED_SECONDS and
-                            MIN_EVIDENCE_PIECES are both satisfied
-                            (see detection_state.py). Probabilities
+                            before the adaptive time, evidence-volume,
+                            and evidence-diversity floors are all
+                            satisfied (see detection_state.py). Probabilities
                             are still sent so the dashboard can show
                             the live bar chart, but candidate_ids=[]
                             until we're ready.
@@ -145,7 +145,9 @@ def _select_possible_candidates(
     # the real candidate (wherever it currently ranks) stays included
     # rather than being cut on the noisy leader's terms.
     contenders = [
-        p for p in participants if p.probability_candidate >= INSUFFICIENT_EVIDENCE_THRESHOLD
+        p
+        for p in participants
+        if p.probability_candidate >= INSUFFICIENT_EVIDENCE_THRESHOLD
     ]
     return [p.participant_id for p in contenders[:MAX_POSSIBLE_CANDIDATES]]
 
