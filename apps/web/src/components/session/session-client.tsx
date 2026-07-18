@@ -16,12 +16,16 @@ import { EngineSocket, getEngineWsUrl } from "@/lib/engine-client";
 import { startSimulatorRun } from "@/lib/simulator-client";
 import { useMounted } from "@/lib/use-mounted";
 import { cn } from "@/lib/utils";
-import { useScenarioLibraryStore } from "@/store/scenario-library-store";
+import { useScenarioLibraryStore, useScenarioLibraryHydrated } from "@/store/scenario-library-store";
 import { useSessionStore } from "@/store/session-store";
 
 export function SessionClient({ scenarioId }: { scenarioId: string }) {
   const scenario = useScenarioLibraryStore((s) => s.getById(scenarioId));
   const mounted = useMounted();
+  // The real "is the library ready to be queried" signal - see the
+  // hook's own doc comment for why useMounted() alone isn't enough on
+  // a fresh /session/[id] load (as opposed to an in-app Link nav).
+  const libraryHydrated = useScenarioLibraryHydrated();
 
   const runStatus = useSessionStore((s) => s.runStatus);
   const runAbort = useSessionStore((s) => s.runAbort);
@@ -31,6 +35,7 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
   const setRunStatus = useSessionStore((s) => s.setRunStatus);
   const setRunAbort = useSessionStore((s) => s.setRunAbort);
   const setEngineStatus = useSessionStore((s) => s.setEngineStatus);
+  const setEngineReconnectedMidRun = useSessionStore((s) => s.setEngineReconnectedMidRun);
   const handleSimFrame = useSessionStore((s) => s.handleSimFrame);
   const handleEngineMessage = useSessionStore((s) => s.handleEngineMessage);
 
@@ -41,6 +46,14 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
   // Connection happens in handleStart so the engine only sees frames from
   // an active run, not stale reconnects from page reloads.
   useEffect(() => {
+    // Wait for the real rehydration signal, not just scenario being
+    // falsy - on a fresh page load `scenario` is legitimately
+    // undefined for a beat before localStorage has been read, and
+    // treating that the same as "genuinely not in the library" is
+    // exactly what used to skip this effect (no EngineSocket ever
+    // gets constructed) until a reload happened to land after
+    // rehydration resolved.
+    if (!libraryHydrated) return;
     if (!scenario) return;
     if (initializedFor.current === scenario.id) return;
     initializedFor.current = scenario.id;
@@ -50,17 +63,37 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
     engineSocketRef.current = socket;
     const offStatus = socket.onStatus(setEngineStatus);
     const offMessage = socket.onMessage(handleEngineMessage);
+    const offReconnect = socket.onReconnectDetected(setEngineReconnectedMidRun);
     // Do NOT call socket.connect() here — connect on Start, close on Stop/Done.
 
     return () => {
+      // React StrictMode (on by default for Next.js dev) runs every
+      // effect as mount -> cleanup -> mount again. Without resetting
+      // this ref here, the *second* mount's `initializedFor.current
+      // === scenario.id` guard above would see the id already set
+      // from the first mount and bail out - leaving
+      // engineSocketRef.current pointed at this now-closed socket,
+      // with its listeners already torn down, for the rest of the
+      // page's life. handleStart's later connect() would then
+      // silently reopen this same dead socket: the transport-level
+      // connection genuinely succeeds (which is why the Engine's own
+      // logs show an accepted connection and real processing), but
+      // with no onMessage/onStatus listeners left subscribed, nothing
+      // ever reaches session-store - so the panel never updates until
+      // a full page reload rebuilds everything from scratch. Resetting
+      // the ref on every cleanup means a StrictMode-driven second
+      // mount (or any other real remount) always gets a fresh,
+      // properly-wired socket instead of inheriting a dead one.
+      initializedFor.current = null;
       offStatus();
       offMessage();
+      offReconnect();
       socket.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenario?.id]);
+  }, [scenario?.id, libraryHydrated]);
 
-  if (!mounted) return null;
+  if (!mounted || !libraryHydrated) return null;
 
   if (!scenario) {
     return (
@@ -143,7 +176,10 @@ export function SessionClient({ scenarioId }: { scenarioId: string }) {
           <RawEventLog />
         </div>
         <div className="flex flex-col gap-4 lg:sticky lg:top-4 lg:self-start">
-          <EnginePanel onReconnect={handleReconnect} />
+          <EnginePanel
+            onReconnect={handleReconnect}
+            groundTruthParticipantId={scenario.groundTruthParticipantId}
+          />
         </div>
       </div>
     </div>

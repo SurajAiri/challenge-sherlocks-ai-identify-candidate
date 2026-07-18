@@ -8,7 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useMounted } from "@/lib/use-mounted";
 import { cn } from "@/lib/utils";
-import { useScenarioLibraryStore } from "@/store/scenario-library-store";
+import { useScenarioLibraryStore, useScenarioLibraryHydrated } from "@/store/scenario-library-store";
 import { useSessionStore } from "@/store/session-store";
 
 /**
@@ -29,7 +29,13 @@ export function ResultClient({ scenarioId }: { scenarioId: string }) {
   const rawLog = useSessionStore((s) => s.rawLog);
 
   const mounted = useMounted();
-  if (!mounted) return null;
+  // See useScenarioLibraryHydrated's doc comment - useMounted() alone
+  // doesn't guarantee the persisted library has actually been read
+  // yet on a fresh page load, so without this a direct/refreshed hit
+  // on the results page could show "not in your local library" for a
+  // beat even when the scenario is right there in localStorage.
+  const libraryHydrated = useScenarioLibraryHydrated();
+  if (!mounted || !libraryHydrated) return null;
 
   if (!scenario) {
     return (

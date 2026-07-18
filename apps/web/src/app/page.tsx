@@ -5,15 +5,23 @@ import { EmptyState } from "@/components/library/empty-state";
 import { ScenarioCard } from "@/components/library/scenario-card";
 import { Logo } from "@/components/logo";
 import { useMounted } from "@/lib/use-mounted";
-import { useScenarioLibraryStore } from "@/store/scenario-library-store";
+import { useScenarioLibraryStore, useScenarioLibraryHydrated } from "@/store/scenario-library-store";
 
 export default function LibraryPage() {
   const scenarios = useScenarioLibraryStore((s) => s.scenarios);
 
-  // zustand's persist() rehydrates from localStorage after first paint -
-  // rendering the list before that would mismatch SSR output, so hold
-  // off on real content for a tick.
+  // zustand's persist() rehydrates from localStorage asynchronously,
+  // on its own schedule - separate from (and slightly later than)
+  // React's own hydration. Gating on useMounted() alone isn't enough:
+  // there's a real window on a fresh load where mounted is already
+  // true but rehydration hasn't resolved yet, during which `scenarios`
+  // is still `[]` even if localStorage has entries - which used to
+  // flash the "no scenarios yet" EmptyState before flipping to the
+  // real list a moment later. useScenarioLibraryHydrated() is the
+  // actual "safe to read scenarios now" signal.
   const mounted = useMounted();
+  const libraryHydrated = useScenarioLibraryHydrated();
+  const ready = mounted && libraryHydrated;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-10">
@@ -35,7 +43,7 @@ export default function LibraryPage() {
         </div>
       </header>
 
-      {!mounted ? null : scenarios.length === 0 ? (
+      {!ready ? null : scenarios.length === 0 ? (
         <EmptyState />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

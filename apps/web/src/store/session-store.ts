@@ -161,6 +161,17 @@ interface SessionState {
   engineStatus: EngineStatus;
   engineLatest: EnginePrediction | null;
   engineHistory: EnginePrediction[];
+  /**
+   * True once the current run has seen the Engine socket open more
+   * than once (i.e. a mid-run drop + reconnect). The engine has no
+   * session resume yet - a reconnect gets a brand-new, empty
+   * SessionEngine server-side (see apps/engine/src/engine/api/ws.py),
+   * so every prediction before this point is now stale and everything
+   * from here on is that fresh instance re-deriving from scratch.
+   * Surfaced as a persistent warning in EnginePanel rather than staying
+   * silent, since "Connected" alone can't tell the two cases apart.
+   */
+  engineReconnectedMidRun: boolean;
 
   // actions
   startSession: (scenario: { libraryId: string; path: string; name: string }) => void;
@@ -169,6 +180,7 @@ interface SessionState {
   handleSimFrame: (frame: SimFrame) => void;
   handleEngineMessage: (raw: unknown) => void;
   setEngineStatus: (status: EngineStatus) => void;
+  setEngineReconnectedMidRun: () => void;
   setLivePlaybackEnabled: (enabled: boolean) => void;
   dequeueLiveAudioChunks: (count: number) => void;
   setRunSpeedMultiplier: (speed: number | null) => void;
@@ -237,6 +249,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   engineStatus: "idle",
   engineLatest: null,
   engineHistory: [],
+  engineReconnectedMidRun: false,
 
   startSession: ({ libraryId, path, name }) => {
     const prev = get();
@@ -270,6 +283,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       liveAudioChunkQueue: [],
       engineLatest: null,
       engineHistory: [],
+      engineReconnectedMidRun: false,
     });
   },
 
@@ -279,6 +293,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   setRunAbort: (controller) => set({ runAbort: controller }),
 
   setEngineStatus: (status) => set({ engineStatus: status }),
+  setEngineReconnectedMidRun: () => set({ engineReconnectedMidRun: true }),
 
   setLivePlaybackEnabled: (enabled) => set({ livePlaybackEnabled: enabled }),
   dequeueLiveAudioChunks: (count) =>

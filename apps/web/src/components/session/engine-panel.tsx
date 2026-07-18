@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BrainCircuit, ChevronDown, History, RefreshCw, Telescope } from "lucide-react";
+import { AlertTriangle, BrainCircuit, ChevronDown, History, RefreshCw, Telescope } from "lucide-react";
 
 import { StatusDot, type StatusTone } from "@/components/status-dot";
 import { cn } from "@/lib/utils";
@@ -35,15 +35,35 @@ const STATUS_LABEL: Record<EngineStatus, string> = {
  * shows a dedicated banner instead of Candidate/Confidence/Reasoning
  * rows, because no candidate has been named yet by design.
  */
-export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
+export function EnginePanel({
+  onReconnect,
+  groundTruthParticipantId,
+}: {
+  onReconnect?: () => void;
+  /**
+   * Read-only, for-testing display of the scenario's authored answer -
+   * sourced the same way as the post-run results page
+   * (scenario.groundTruthParticipantId from the local library entry,
+   * itself populated by the simulator's author/scoring-only
+   * `/evaluation` endpoint). Purely a rendering convenience passed down
+   * from SessionClient: never touches session-store, never reaches the
+   * Engine, and plays no part in the identification pipeline it's here
+   * to help a human sanity-check against.
+   */
+  groundTruthParticipantId?: string | null;
+}) {
   const status = useSessionStore((s) => s.engineStatus);
   const latest = useSessionStore((s) => s.engineLatest);
   const history = useSessionStore((s) => s.engineHistory);
   const participants = useSessionStore((s) => s.participants);
+  const reconnectedMidRun = useSessionStore((s) => s.engineReconnectedMidRun);
   const [showHistory, setShowHistory] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
 
   const displayName = (pid: string) => participants[pid]?.displayName ?? pid;
+  const groundTruthName = groundTruthParticipantId
+    ? (participants[groundTruthParticipantId]?.displayName ?? groundTruthParticipantId)
+    : null;
 
   const isExploring = latest?.detectionState === "exploring";
 
@@ -86,6 +106,41 @@ export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
           )}
         </div>
       </div>
+
+      {/* Mid-run reconnect warning — the engine has no session resume
+          yet (see apps/engine/src/engine/api/ws.py docstring): a
+          reconnect after the socket had already opened once means the
+          server spun up a brand-new, empty SessionEngine. Everything
+          in history/probabilities from here on is that fresh instance
+          re-deriving from scratch, not a recovery of what came before.
+          Persistent for the rest of the run (not dismissible) since it
+          stays true for every prediction that follows. */}
+      {reconnectedMidRun && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2.5">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <div className="flex flex-col gap-0.5">
+            <p className="text-xs font-medium text-destructive">Engine reconnected mid-run</p>
+            <p className="text-[0.7rem] leading-snug text-destructive/80">
+              The connection dropped and reconnected during this run. The engine has no
+              session resume yet, so this is a fresh instance re-deriving from scratch —
+              predictions before this point are from a discarded session.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Ground truth (for testing) — read-only, never fed to the engine.
+          Shown here (not just on the post-run results page) so you can
+          watch the live prediction against the authored answer in real
+          time instead of waiting for the run to finish. */}
+      {groundTruthParticipantId !== undefined && (
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">Ground truth (test only)</span>
+          <span className="font-mono text-muted-foreground">
+            {groundTruthName ?? "not recorded"}
+          </span>
+        </div>
+      )}
 
       {/* EXPLORING warmup banner */}
       {isExploring && latest ? (
@@ -153,6 +208,14 @@ export function EnginePanel({ onReconnect }: { onReconnect?: () => void }) {
                   )}
                 >
                   {displayName(pid)}
+                  {groundTruthParticipantId === pid && (
+                    <span
+                      title="Ground truth (test only)"
+                      className="ml-1 text-[var(--accent-signal)]"
+                    >
+                      ✓
+                    </span>
+                  )}
                 </span>
                 <span className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
                   <span
